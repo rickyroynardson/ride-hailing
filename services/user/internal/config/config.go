@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	AppEnv      string `mapstructure:"app_env"`
 	ServiceName string `mapstructure:"service_name"`
 	PostgresURL string `mapstructure:"postgres_url"`
 }
@@ -15,6 +16,7 @@ type Config struct {
 func Load() (*Config, error) {
 	v := viper.New()
 
+	v.SetDefault("app_env", "production")
 	v.SetDefault("service_name", "user-service")
 	v.SetDefault("postgres_url", "")
 

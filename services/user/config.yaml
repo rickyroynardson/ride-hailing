@@ -1,2 +1,3 @@
+app_env: "development"
 service_name: "user-service"
 postgres_url: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
