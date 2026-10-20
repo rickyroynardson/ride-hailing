@@ -11,15 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/logger"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/server"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -46,13 +44,10 @@ func main() {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
 
-	gs := grpc.NewServer()
-
 	authRepo := auth.NewRepository(dbpool)
 	authService := auth.NewService(authRepo, cfg.JWTSecret)
 
-	userv1.RegisterAuthServiceServer(gs, server.NewAuthServer(authService))
-	reflection.Register(gs)
+	gs := server.NewGRPCServer(authService)
 
 	r := chi.NewRouter()
 
@@ -60,6 +55,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pong!"))
 	})
+	r.Handle("/metrics", promhttp.Handler())
 
 	sv := &http.Server{
 		Addr:    ":8080",
