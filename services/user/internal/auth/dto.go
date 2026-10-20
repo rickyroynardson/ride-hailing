@@ -11,6 +11,7 @@ import (
 var (
 	ErrInvalidInput = errors.New("invalid input")
 	ErrUserExists   = errors.New("email or phone already registered")
+	ErrInvalidCreds = errors.New("invalid email or password")
 )
 
 type User struct {
@@ -46,6 +47,21 @@ func (in *RegisterInput) Validate() error {
 	}
 	if in.Name == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalidInput)
+	}
+
+	return nil
+}
+
+type LoginInput struct {
+	Email    string
+	Password string
+}
+
+func (in *LoginInput) Validate() error {
+	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+
+	if in.Email == "" || in.Password == "" {
+		return fmt.Errorf("%w: email and password are required", ErrInvalidInput)
 	}
 
 	return nil

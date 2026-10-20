@@ -46,12 +46,38 @@ func (s *AuthServer) Register(ctx context.Context, req *userv1.RegisterRequest) 
 	}, nil
 }
 
+func (s *AuthServer) Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
+	user, tokens, err := s.service.Login(ctx, auth.LoginInput{
+		Email:    req.GetEmail(),
+		Password: req.GetPassword(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &userv1.LoginResponse{
+		User: &userv1.User{
+			Id:        user.ID,
+			Email:     user.Email,
+			Name:      user.Name,
+			Phone:     user.Phone,
+			CreatedAt: timestamppb.New(user.CreatedAt),
+		},
+		Tokens: &userv1.Token{
+			AccessToken:  tokens.Access,
+			RefreshToken: tokens.Refresh,
+		},
+	}, nil
+}
+
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, auth.ErrInvalidInput):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, auth.ErrUserExists):
 		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, auth.ErrInvalidCreds):
+		return status.Error(codes.Unauthenticated, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}

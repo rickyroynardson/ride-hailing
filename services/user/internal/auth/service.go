@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -50,6 +51,35 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (User, Tok
 	return user, tokens, nil
 }
 
+// dummyHash keeps unknown-email logins as slow as wrong-password ones, so timing doesn't leak which emails exist.
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password"), bcrypt.DefaultCost)
+
+func (s *AuthService) Login(ctx context.Context, in LoginInput) (User, Tokens, error) {
+	if err := in.Validate(); err != nil {
+		return User{}, Tokens{}, err
+	}
+
+	user, hash, err := s.repository.GetUserByEmail(ctx, in.Email)
+	if errors.Is(err, ErrInvalidCreds) {
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(in.Password))
+		return User{}, Tokens{}, err
+	}
+	if err != nil {
+		return User{}, Tokens{}, err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)); err != nil {
+		return User{}, Tokens{}, ErrInvalidCreds
+	}
+
+	tokens, err := s.issueTokens(ctx, user.ID)
+	if err != nil {
+		return User{}, Tokens{}, err
+	}
+
+	return user, tokens, nil
+}
+
 func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, error) {
 	now := time.Now()
 
@@ -57,7 +87,7 @@ func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, e
 		Subject:   userID,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(accessTokenTTL)),
-	}).SignedString(s.jwtSecret)
+	}).SignedString([]byte(s.jwtSecret))
 	if err != nil {
 		return Tokens{}, err
 	}

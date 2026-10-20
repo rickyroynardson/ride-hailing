@@ -141,6 +141,110 @@ func (x *RegisterResponse) GetTokens() *Token {
 	return nil
 }
 
+type LoginRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LoginRequest) Reset() {
+	*x = LoginRequest{}
+	mi := &file_user_v1_auth_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoginRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoginRequest) ProtoMessage() {}
+
+func (x *LoginRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_auth_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoginRequest.ProtoReflect.Descriptor instead.
+func (*LoginRequest) Descriptor() ([]byte, []int) {
+	return file_user_v1_auth_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *LoginRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+type LoginResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Tokens        *Token                 `protobuf:"bytes,2,opt,name=tokens,proto3" json:"tokens,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LoginResponse) Reset() {
+	*x = LoginResponse{}
+	mi := &file_user_v1_auth_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoginResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoginResponse) ProtoMessage() {}
+
+func (x *LoginResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_auth_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoginResponse.ProtoReflect.Descriptor instead.
+func (*LoginResponse) Descriptor() ([]byte, []int) {
+	return file_user_v1_auth_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *LoginResponse) GetUser() *User {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
+func (x *LoginResponse) GetTokens() *Token {
+	if x != nil {
+		return x.Tokens
+	}
+	return nil
+}
+
 type Token struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccessToken   string                 `protobuf:"bytes,1,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
@@ -151,7 +255,7 @@ type Token struct {
 
 func (x *Token) Reset() {
 	*x = Token{}
-	mi := &file_user_v1_auth_proto_msgTypes[2]
+	mi := &file_user_v1_auth_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -163,7 +267,7 @@ func (x *Token) String() string {
 func (*Token) ProtoMessage() {}
 
 func (x *Token) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_auth_proto_msgTypes[2]
+	mi := &file_user_v1_auth_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -176,7 +280,7 @@ func (x *Token) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Token.ProtoReflect.Descriptor instead.
 func (*Token) Descriptor() ([]byte, []int) {
-	return file_user_v1_auth_proto_rawDescGZIP(), []int{2}
+	return file_user_v1_auth_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Token) GetAccessToken() string {
@@ -205,12 +309,19 @@ const file_user_v1_auth_proto_rawDesc = "" +
 	"\x05phone\x18\x04 \x01(\tR\x05phone\"]\n" +
 	"\x10RegisterResponse\x12!\n" +
 	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\x12&\n" +
+	"\x06tokens\x18\x02 \x01(\v2\x0e.user.v1.TokenR\x06tokens\"@\n" +
+	"\fLoginRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\"Z\n" +
+	"\rLoginResponse\x12!\n" +
+	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\x12&\n" +
 	"\x06tokens\x18\x02 \x01(\v2\x0e.user.v1.TokenR\x06tokens\"O\n" +
 	"\x05Token\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
-	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken2P\n" +
+	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken2\x8a\x01\n" +
 	"\vAuthService\x12A\n" +
-	"\bRegister\x12\x18.user.v1.RegisterRequest\x1a\x19.user.v1.RegisterResponse\"\x00B\x97\x01\n" +
+	"\bRegister\x12\x18.user.v1.RegisterRequest\x1a\x19.user.v1.RegisterResponse\"\x00\x128\n" +
+	"\x05Login\x12\x15.user.v1.LoginRequest\x1a\x16.user.v1.LoginResponse\"\x00B\x97\x01\n" +
 	"\vcom.user.v1B\tAuthProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/user/v1;userv1\xa2\x02\x03UXX\xaa\x02\aUser.V1\xca\x02\aUser\\V1\xe2\x02\x13User\\V1\\GPBMetadata\xea\x02\bUser::V1b\x06proto3"
 
 var (
@@ -225,23 +336,29 @@ func file_user_v1_auth_proto_rawDescGZIP() []byte {
 	return file_user_v1_auth_proto_rawDescData
 }
 
-var file_user_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_user_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_user_v1_auth_proto_goTypes = []any{
 	(*RegisterRequest)(nil),  // 0: user.v1.RegisterRequest
 	(*RegisterResponse)(nil), // 1: user.v1.RegisterResponse
-	(*Token)(nil),            // 2: user.v1.Token
-	(*User)(nil),             // 3: user.v1.User
+	(*LoginRequest)(nil),     // 2: user.v1.LoginRequest
+	(*LoginResponse)(nil),    // 3: user.v1.LoginResponse
+	(*Token)(nil),            // 4: user.v1.Token
+	(*User)(nil),             // 5: user.v1.User
 }
 var file_user_v1_auth_proto_depIdxs = []int32{
-	3, // 0: user.v1.RegisterResponse.user:type_name -> user.v1.User
-	2, // 1: user.v1.RegisterResponse.tokens:type_name -> user.v1.Token
-	0, // 2: user.v1.AuthService.Register:input_type -> user.v1.RegisterRequest
-	1, // 3: user.v1.AuthService.Register:output_type -> user.v1.RegisterResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	5, // 0: user.v1.RegisterResponse.user:type_name -> user.v1.User
+	4, // 1: user.v1.RegisterResponse.tokens:type_name -> user.v1.Token
+	5, // 2: user.v1.LoginResponse.user:type_name -> user.v1.User
+	4, // 3: user.v1.LoginResponse.tokens:type_name -> user.v1.Token
+	0, // 4: user.v1.AuthService.Register:input_type -> user.v1.RegisterRequest
+	2, // 5: user.v1.AuthService.Login:input_type -> user.v1.LoginRequest
+	1, // 6: user.v1.AuthService.Register:output_type -> user.v1.RegisterResponse
+	3, // 7: user.v1.AuthService.Login:output_type -> user.v1.LoginResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_user_v1_auth_proto_init() }
@@ -256,7 +373,7 @@ func file_user_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_v1_auth_proto_rawDesc), len(file_user_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

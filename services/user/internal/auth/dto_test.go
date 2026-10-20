@@ -26,3 +26,19 @@ func TestRegisterInputValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginInputValidate(t *testing.T) {
+	valid := LoginInput{Email: " Foo@X.com ", Password: "password"}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if valid.Email != "foo@x.com" {
+		t.Fatalf("got %+v", valid)
+	}
+
+	for _, in := range []LoginInput{{Email: " ", Password: "password"}, {Email: "foo@x.com"}} {
+		if err := in.Validate(); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected ErrInvalidInput for %+v, got %v", in, err)
+		}
+	}
+}

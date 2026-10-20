@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,6 +32,21 @@ func (r *AuthRepository) CreateUser(ctx context.Context, in RegisterInput) (User
 		return User{}, ErrUserExists
 	}
 	return u, err
+}
+
+func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (User, string, error) {
+	var u User
+	var passwordHash string
+
+	err := r.DB.QueryRow(ctx,
+		`SELECT id, email, name, COALESCE(phone, ''), created_at, password_hash FROM users WHERE email = $1`,
+		email,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.CreatedAt, &passwordHash)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, "", ErrInvalidCreds
+	}
+	return u, passwordHash, err
 }
 
 func (r *AuthRepository) CreateRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
