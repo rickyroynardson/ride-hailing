@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,10 +11,15 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
+	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/logger"
+	"github.com/rickyroynardson/ride-hailing/services/user/internal/server"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -40,6 +46,14 @@ func main() {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
 
+	gs := grpc.NewServer()
+
+	authRepo := auth.NewRepository(dbpool)
+	authService := auth.NewService(authRepo, cfg.JWTSecret)
+
+	userv1.RegisterAuthServiceServer(gs, server.NewAuthServer(authService))
+	reflection.Register(gs)
+
 	r := chi.NewRouter()
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -52,12 +66,22 @@ func main() {
 		Handler: r,
 	}
 
+	grpcLn, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		lg.Fatal("failed to listen grpc", zap.Error(err))
+	}
+
+	go func() {
+		if err := gs.Serve(grpcLn); err != nil {
+			lg.Fatal("grpc server stopped", zap.Error(err))
+		}
+	}()
 	go func() {
 		if err := sv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			lg.Fatal("failed to start server", zap.Error(err))
 		}
 	}()
-	lg.Info("server is running")
+	lg.Info("server is running", zap.String("http", ":8080"), zap.String("grpc", ":50051"))
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -67,6 +91,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	gs.GracefulStop()
 	if err := sv.Shutdown(ctx); err != nil {
 		lg.Fatal("failed to shutdown server", zap.Error(err))
 	}
