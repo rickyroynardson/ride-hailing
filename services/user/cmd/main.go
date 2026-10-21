@@ -44,6 +44,7 @@ func main() {
 	if err := dbpool.Ping(ctx); err != nil {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
+	database.RegisterPoolMetrics(dbpool)
 
 	authRepo := auth.NewRepository(dbpool)
 	authService := auth.NewService(authRepo, cfg.JWTSecret)
