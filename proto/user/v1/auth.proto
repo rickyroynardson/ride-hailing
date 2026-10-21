@@ -7,6 +7,8 @@ import "user/v1/user.proto";
 service AuthService {
   rpc Register(RegisterRequest) returns (RegisterResponse) {}
   rpc Login(LoginRequest) returns (LoginResponse) {}
+  rpc Refresh(RefreshRequest) returns (RefreshResponse) {}
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 }
 
 message RegisterRequest {
@@ -30,6 +32,21 @@ message LoginResponse {
   User user = 1;
   Token tokens = 2;
 }
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message RefreshResponse {
+  User user = 1;
+  Token tokens = 2;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
 
 message Token {
   string access_token = 1;

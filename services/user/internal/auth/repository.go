@@ -53,3 +53,23 @@ func (r *AuthRepository) CreateRefreshToken(ctx context.Context, userID, tokenHa
 	_, err := r.DB.Exec(ctx, "INSERT INTO refresh_tokens(user_id, token, expires_at) VALUES ($1, $2, $3)", userID, tokenHash, expiresAt)
 	return err
 }
+
+func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, tokenHash string) (User, error) {
+	var u User
+
+	err := r.DB.QueryRow(ctx,
+		`WITH revoked AS (
+			UPDATE refresh_tokens SET revoked_at = NOW()
+			WHERE token = $1 AND revoked_at IS NULL AND expires_at > NOW()
+			RETURNING user_id
+		)
+		SELECT u.id, u.email, u.name, COALESCE(u.phone, ''), u.created_at
+		FROM users u JOIN revoked ON u.id = revoked.user_id`,
+		tokenHash,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.CreatedAt)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrInvalidToken
+	}
+	return u, err
+}

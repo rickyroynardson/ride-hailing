@@ -70,13 +70,42 @@ func (s *AuthServer) Login(ctx context.Context, req *userv1.LoginRequest) (*user
 	}, nil
 }
 
+func (s *AuthServer) Refresh(ctx context.Context, req *userv1.RefreshRequest) (*userv1.RefreshResponse, error) {
+	user, tokens, err := s.service.Refresh(ctx, req.GetRefreshToken())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &userv1.RefreshResponse{
+		User: &userv1.User{
+			Id:        user.ID,
+			Email:     user.Email,
+			Name:      user.Name,
+			Phone:     user.Phone,
+			CreatedAt: timestamppb.New(user.CreatedAt),
+		},
+		Tokens: &userv1.Token{
+			AccessToken:  tokens.Access,
+			RefreshToken: tokens.Refresh,
+		},
+	}, nil
+}
+
+func (s *AuthServer) Logout(ctx context.Context, req *userv1.LogoutRequest) (*userv1.LogoutResponse, error) {
+	if err := s.service.Logout(ctx, req.GetRefreshToken()); err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &userv1.LogoutResponse{}, nil
+}
+
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, auth.ErrInvalidInput):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, auth.ErrUserExists):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, auth.ErrInvalidCreds):
+	case errors.Is(err, auth.ErrInvalidCreds), errors.Is(err, auth.ErrInvalidToken):
 		return status.Error(codes.Unauthenticated, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")

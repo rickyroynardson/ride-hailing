@@ -80,6 +80,36 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (User, Tokens, e
 	return user, tokens, nil
 }
 
+func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (User, Tokens, error) {
+	if refreshToken == "" {
+		return User{}, Tokens{}, ErrInvalidToken
+	}
+
+	user, err := s.repository.RevokeRefreshToken(ctx, hashToken(refreshToken))
+	if err != nil {
+		return User{}, Tokens{}, err
+	}
+
+	tokens, err := s.issueTokens(ctx, user.ID)
+	if err != nil {
+		return User{}, Tokens{}, err
+	}
+
+	return user, tokens, nil
+}
+
+func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
+	if refreshToken == "" {
+		return nil
+	}
+
+	_, err := s.repository.RevokeRefreshToken(ctx, hashToken(refreshToken))
+	if errors.Is(err, ErrInvalidToken) {
+		return nil
+	}
+	return err
+}
+
 func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, error) {
 	now := time.Now()
 
@@ -96,10 +126,14 @@ func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, e
 	rand.Read(b)
 	refresh := base64.RawURLEncoding.EncodeToString(b)
 
-	sum := sha256.Sum256([]byte(refresh))
-	if err := s.repository.CreateRefreshToken(ctx, userID, hex.EncodeToString(sum[:]), now.Add(refreshTokenTTL)); err != nil {
+	if err := s.repository.CreateRefreshToken(ctx, userID, hashToken(refresh), now.Add(refreshTokenTTL)); err != nil {
 		return Tokens{}, err
 	}
 
 	return Tokens{Access: access, Refresh: refresh}, nil
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
