@@ -6,9 +6,9 @@ import (
 
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type AuthServer struct {
@@ -21,7 +21,7 @@ func NewAuthServer(service *auth.AuthService) *AuthServer {
 }
 
 func (s *AuthServer) Register(ctx context.Context, req *userv1.RegisterRequest) (*userv1.RegisterResponse, error) {
-	user, tokens, err := s.service.Register(ctx, auth.RegisterInput{
+	u, tokens, err := s.service.Register(ctx, auth.RegisterInput{
 		Email:    req.GetEmail(),
 		Password: req.GetPassword(),
 		Name:     req.GetName(),
@@ -32,13 +32,7 @@ func (s *AuthServer) Register(ctx context.Context, req *userv1.RegisterRequest) 
 	}
 
 	return &userv1.RegisterResponse{
-		User: &userv1.User{
-			Id:        user.ID,
-			Email:     user.Email,
-			Name:      user.Name,
-			Phone:     user.Phone,
-			CreatedAt: timestamppb.New(user.CreatedAt),
-		},
+		User: toUserProto(u),
 		Tokens: &userv1.Token{
 			AccessToken:  tokens.Access,
 			RefreshToken: tokens.Refresh,
@@ -47,7 +41,7 @@ func (s *AuthServer) Register(ctx context.Context, req *userv1.RegisterRequest) 
 }
 
 func (s *AuthServer) Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
-	user, tokens, err := s.service.Login(ctx, auth.LoginInput{
+	u, tokens, err := s.service.Login(ctx, auth.LoginInput{
 		Email:    req.GetEmail(),
 		Password: req.GetPassword(),
 	})
@@ -56,13 +50,7 @@ func (s *AuthServer) Login(ctx context.Context, req *userv1.LoginRequest) (*user
 	}
 
 	return &userv1.LoginResponse{
-		User: &userv1.User{
-			Id:        user.ID,
-			Email:     user.Email,
-			Name:      user.Name,
-			Phone:     user.Phone,
-			CreatedAt: timestamppb.New(user.CreatedAt),
-		},
+		User: toUserProto(u),
 		Tokens: &userv1.Token{
 			AccessToken:  tokens.Access,
 			RefreshToken: tokens.Refresh,
@@ -71,19 +59,13 @@ func (s *AuthServer) Login(ctx context.Context, req *userv1.LoginRequest) (*user
 }
 
 func (s *AuthServer) Refresh(ctx context.Context, req *userv1.RefreshRequest) (*userv1.RefreshResponse, error) {
-	user, tokens, err := s.service.Refresh(ctx, req.GetRefreshToken())
+	u, tokens, err := s.service.Refresh(ctx, req.GetRefreshToken())
 	if err != nil {
 		return nil, toStatus(err)
 	}
 
 	return &userv1.RefreshResponse{
-		User: &userv1.User{
-			Id:        user.ID,
-			Email:     user.Email,
-			Name:      user.Name,
-			Phone:     user.Phone,
-			CreatedAt: timestamppb.New(user.CreatedAt),
-		},
+		User: toUserProto(u),
 		Tokens: &userv1.Token{
 			AccessToken:  tokens.Access,
 			RefreshToken: tokens.Refresh,
@@ -101,13 +83,13 @@ func (s *AuthServer) Logout(ctx context.Context, req *userv1.LogoutRequest) (*us
 
 func toStatus(err error) error {
 	switch {
-	case errors.Is(err, auth.ErrInvalidInput):
+	case errors.Is(err, auth.ErrInvalidInput), errors.Is(err, user.ErrInvalidInput):
 		return status.Error(codes.InvalidArgument, err.Error())
-	case errors.Is(err, auth.ErrUserExists):
+	case errors.Is(err, auth.ErrUserExists), errors.Is(err, user.ErrDriverExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, auth.ErrInvalidCreds), errors.Is(err, auth.ErrInvalidToken), errors.Is(err, auth.ErrInvalidAuth):
 		return status.Error(codes.Unauthenticated, err.Error())
-	case errors.Is(err, auth.ErrUserNotFound):
+	case errors.Is(err, user.ErrUserNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")

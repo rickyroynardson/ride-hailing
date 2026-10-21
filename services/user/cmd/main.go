@@ -17,6 +17,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/logger"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/server"
+	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 	"go.uber.org/zap"
 )
 
@@ -47,7 +48,10 @@ func main() {
 	authRepo := auth.NewRepository(dbpool)
 	authService := auth.NewService(authRepo, cfg.JWTSecret)
 
-	gs := server.NewGRPCServer(authService)
+	userRepo := user.NewRepository(dbpool)
+	userService := user.NewService(userRepo)
+
+	gs := server.NewGRPCServer(authService, userService)
 
 	r := chi.NewRouter()
 

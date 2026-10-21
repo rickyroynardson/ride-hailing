@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 )
 
 type AuthRepository struct {
@@ -18,8 +19,8 @@ func NewRepository(dbpool *pgxpool.Pool) *AuthRepository {
 	return &AuthRepository{DB: dbpool}
 }
 
-func (r *AuthRepository) CreateUser(ctx context.Context, in RegisterInput) (User, error) {
-	var u User
+func (r *AuthRepository) CreateUser(ctx context.Context, in RegisterInput) (user.User, error) {
+	var u user.User
 
 	err := r.DB.QueryRow(ctx,
 		`INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, $3, NULLIF($4, ''))
@@ -29,13 +30,13 @@ func (r *AuthRepository) CreateUser(ctx context.Context, in RegisterInput) (User
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return User{}, ErrUserExists
+		return user.User{}, ErrUserExists
 	}
 	return u, err
 }
 
-func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (User, string, error) {
-	var u User
+func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (user.User, string, error) {
+	var u user.User
 	var passwordHash string
 
 	err := r.DB.QueryRow(ctx,
@@ -44,23 +45,18 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (User
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.CreatedAt, &passwordHash)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, "", ErrInvalidCreds
+		return user.User{}, "", ErrInvalidCreds
 	}
 	return u, passwordHash, err
 }
 
-func (r *AuthRepository) GetUserByID(ctx context.Context, id string) (User, error) {
-	var u User
-
+func (r *AuthRepository) IsApprovedDriver(ctx context.Context, userID string) (bool, error) {
+	var approved bool
 	err := r.DB.QueryRow(ctx,
-		`SELECT id, email, name, COALESCE(phone, ''), created_at FROM users WHERE id = $1`,
-		id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.CreatedAt)
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrUserNotFound
-	}
-	return u, err
+		`SELECT EXISTS(SELECT 1 FROM driver_profiles WHERE user_id = $1 AND status = 'approved')`,
+		userID,
+	).Scan(&approved)
+	return approved, err
 }
 
 func (r *AuthRepository) CreateRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
@@ -68,8 +64,8 @@ func (r *AuthRepository) CreateRefreshToken(ctx context.Context, userID, tokenHa
 	return err
 }
 
-func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, tokenHash string) (User, error) {
-	var u User
+func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, tokenHash string) (user.User, error) {
+	var u user.User
 
 	err := r.DB.QueryRow(ctx,
 		`WITH revoked AS (
@@ -83,7 +79,7 @@ func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, tokenHash strin
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.CreatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrInvalidToken
+		return user.User{}, ErrInvalidToken
 	}
 	return u, err
 }

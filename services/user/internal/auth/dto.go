@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
-	"time"
 )
 
 var (
@@ -14,16 +13,7 @@ var (
 	ErrInvalidCreds = errors.New("invalid email or password")
 	ErrInvalidToken = errors.New("invalid or expired refresh token")
 	ErrInvalidAuth  = errors.New("invalid or missing access token")
-	ErrUserNotFound = errors.New("user not found")
 )
-
-type User struct {
-	ID        string
-	Email     string
-	Name      string
-	Phone     string
-	CreatedAt time.Time
-}
 
 type Tokens struct {
 	Access  string

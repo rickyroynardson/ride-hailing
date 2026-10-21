@@ -59,8 +59,10 @@ func (*GetMeRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetMeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	User  *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	// Unset when the user is not a driver.
+	DriverProfile *DriverProfile `protobuf:"bytes,2,opt,name=driver_profile,json=driverProfile,proto3" json:"driver_profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -102,6 +104,194 @@ func (x *GetMeResponse) GetUser() *User {
 	return nil
 }
 
+func (x *GetMeResponse) GetDriverProfile() *DriverProfile {
+	if x != nil {
+		return x.DriverProfile
+	}
+	return nil
+}
+
+type RegisterDriverRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LicenseNumber string                 `protobuf:"bytes,1,opt,name=license_number,json=licenseNumber,proto3" json:"license_number,omitempty"`
+	VehiclePlate  string                 `protobuf:"bytes,2,opt,name=vehicle_plate,json=vehiclePlate,proto3" json:"vehicle_plate,omitempty"`
+	VehicleModel  string                 `protobuf:"bytes,3,opt,name=vehicle_model,json=vehicleModel,proto3" json:"vehicle_model,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterDriverRequest) Reset() {
+	*x = RegisterDriverRequest{}
+	mi := &file_user_v1_user_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterDriverRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterDriverRequest) ProtoMessage() {}
+
+func (x *RegisterDriverRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterDriverRequest.ProtoReflect.Descriptor instead.
+func (*RegisterDriverRequest) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RegisterDriverRequest) GetLicenseNumber() string {
+	if x != nil {
+		return x.LicenseNumber
+	}
+	return ""
+}
+
+func (x *RegisterDriverRequest) GetVehiclePlate() string {
+	if x != nil {
+		return x.VehiclePlate
+	}
+	return ""
+}
+
+func (x *RegisterDriverRequest) GetVehicleModel() string {
+	if x != nil {
+		return x.VehicleModel
+	}
+	return ""
+}
+
+type RegisterDriverResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DriverProfile *DriverProfile         `protobuf:"bytes,1,opt,name=driver_profile,json=driverProfile,proto3" json:"driver_profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterDriverResponse) Reset() {
+	*x = RegisterDriverResponse{}
+	mi := &file_user_v1_user_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterDriverResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterDriverResponse) ProtoMessage() {}
+
+func (x *RegisterDriverResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterDriverResponse.ProtoReflect.Descriptor instead.
+func (*RegisterDriverResponse) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RegisterDriverResponse) GetDriverProfile() *DriverProfile {
+	if x != nil {
+		return x.DriverProfile
+	}
+	return nil
+}
+
+type DriverProfile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LicenseNumber string                 `protobuf:"bytes,1,opt,name=license_number,json=licenseNumber,proto3" json:"license_number,omitempty"`
+	VehiclePlate  string                 `protobuf:"bytes,2,opt,name=vehicle_plate,json=vehiclePlate,proto3" json:"vehicle_plate,omitempty"`
+	VehicleModel  string                 `protobuf:"bytes,3,opt,name=vehicle_model,json=vehicleModel,proto3" json:"vehicle_model,omitempty"`
+	// pending, approved or suspended.
+	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DriverProfile) Reset() {
+	*x = DriverProfile{}
+	mi := &file_user_v1_user_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DriverProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DriverProfile) ProtoMessage() {}
+
+func (x *DriverProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DriverProfile.ProtoReflect.Descriptor instead.
+func (*DriverProfile) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DriverProfile) GetLicenseNumber() string {
+	if x != nil {
+		return x.LicenseNumber
+	}
+	return ""
+}
+
+func (x *DriverProfile) GetVehiclePlate() string {
+	if x != nil {
+		return x.VehiclePlate
+	}
+	return ""
+}
+
+func (x *DriverProfile) GetVehicleModel() string {
+	if x != nil {
+		return x.VehicleModel
+	}
+	return ""
+}
+
+func (x *DriverProfile) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *DriverProfile) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
 type User struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -115,7 +305,7 @@ type User struct {
 
 func (x *User) Reset() {
 	*x = User{}
-	mi := &file_user_v1_user_proto_msgTypes[2]
+	mi := &file_user_v1_user_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -127,7 +317,7 @@ func (x *User) String() string {
 func (*User) ProtoMessage() {}
 
 func (x *User) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[2]
+	mi := &file_user_v1_user_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -140,7 +330,7 @@ func (x *User) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use User.ProtoReflect.Descriptor instead.
 func (*User) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{2}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *User) GetId() string {
@@ -183,18 +373,33 @@ var File_user_v1_user_proto protoreflect.FileDescriptor
 const file_user_v1_user_proto_rawDesc = "" +
 	"\n" +
 	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x0e\n" +
-	"\fGetMeRequest\"2\n" +
+	"\fGetMeRequest\"q\n" +
 	"\rGetMeResponse\x12!\n" +
-	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"\x91\x01\n" +
+	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\x12=\n" +
+	"\x0edriver_profile\x18\x02 \x01(\v2\x16.user.v1.DriverProfileR\rdriverProfile\"\x88\x01\n" +
+	"\x15RegisterDriverRequest\x12%\n" +
+	"\x0elicense_number\x18\x01 \x01(\tR\rlicenseNumber\x12#\n" +
+	"\rvehicle_plate\x18\x02 \x01(\tR\fvehiclePlate\x12#\n" +
+	"\rvehicle_model\x18\x03 \x01(\tR\fvehicleModel\"W\n" +
+	"\x16RegisterDriverResponse\x12=\n" +
+	"\x0edriver_profile\x18\x01 \x01(\v2\x16.user.v1.DriverProfileR\rdriverProfile\"\xd3\x01\n" +
+	"\rDriverProfile\x12%\n" +
+	"\x0elicense_number\x18\x01 \x01(\tR\rlicenseNumber\x12#\n" +
+	"\rvehicle_plate\x18\x02 \x01(\tR\fvehiclePlate\x12#\n" +
+	"\rvehicle_model\x18\x03 \x01(\tR\fvehicleModel\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x91\x01\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x14\n" +
 	"\x05phone\x18\x04 \x01(\tR\x05phone\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2G\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2\x9c\x01\n" +
 	"\vUserService\x128\n" +
-	"\x05GetMe\x12\x15.user.v1.GetMeRequest\x1a\x16.user.v1.GetMeResponse\"\x00B\x97\x01\n" +
+	"\x05GetMe\x12\x15.user.v1.GetMeRequest\x1a\x16.user.v1.GetMeResponse\"\x00\x12S\n" +
+	"\x0eRegisterDriver\x12\x1e.user.v1.RegisterDriverRequest\x1a\x1f.user.v1.RegisterDriverResponse\"\x00B\x97\x01\n" +
 	"\vcom.user.v1B\tUserProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/user/v1;userv1\xa2\x02\x03UXX\xaa\x02\aUser.V1\xca\x02\aUser\\V1\xe2\x02\x13User\\V1\\GPBMetadata\xea\x02\bUser::V1b\x06proto3"
 
 var (
@@ -209,23 +414,31 @@ func file_user_v1_user_proto_rawDescGZIP() []byte {
 	return file_user_v1_user_proto_rawDescData
 }
 
-var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_user_v1_user_proto_goTypes = []any{
-	(*GetMeRequest)(nil),          // 0: user.v1.GetMeRequest
-	(*GetMeResponse)(nil),         // 1: user.v1.GetMeResponse
-	(*User)(nil),                  // 2: user.v1.User
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*GetMeRequest)(nil),           // 0: user.v1.GetMeRequest
+	(*GetMeResponse)(nil),          // 1: user.v1.GetMeResponse
+	(*RegisterDriverRequest)(nil),  // 2: user.v1.RegisterDriverRequest
+	(*RegisterDriverResponse)(nil), // 3: user.v1.RegisterDriverResponse
+	(*DriverProfile)(nil),          // 4: user.v1.DriverProfile
+	(*User)(nil),                   // 5: user.v1.User
+	(*timestamppb.Timestamp)(nil),  // 6: google.protobuf.Timestamp
 }
 var file_user_v1_user_proto_depIdxs = []int32{
-	2, // 0: user.v1.GetMeResponse.user:type_name -> user.v1.User
-	3, // 1: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	0, // 2: user.v1.UserService.GetMe:input_type -> user.v1.GetMeRequest
-	1, // 3: user.v1.UserService.GetMe:output_type -> user.v1.GetMeResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	5, // 0: user.v1.GetMeResponse.user:type_name -> user.v1.User
+	4, // 1: user.v1.GetMeResponse.driver_profile:type_name -> user.v1.DriverProfile
+	4, // 2: user.v1.RegisterDriverResponse.driver_profile:type_name -> user.v1.DriverProfile
+	6, // 3: user.v1.DriverProfile.created_at:type_name -> google.protobuf.Timestamp
+	6, // 4: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	0, // 5: user.v1.UserService.GetMe:input_type -> user.v1.GetMeRequest
+	2, // 6: user.v1.UserService.RegisterDriver:input_type -> user.v1.RegisterDriverRequest
+	1, // 7: user.v1.UserService.GetMe:output_type -> user.v1.GetMeResponse
+	3, // 8: user.v1.UserService.RegisterDriver:output_type -> user.v1.RegisterDriverResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_user_v1_user_proto_init() }
@@ -239,7 +452,7 @@ func file_user_v1_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_v1_user_proto_rawDesc), len(file_user_v1_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

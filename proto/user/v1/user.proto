@@ -6,12 +6,32 @@ import "google/protobuf/timestamp.proto";
 
 service UserService {
   rpc GetMe(GetMeRequest) returns (GetMeResponse) {}
+  rpc RegisterDriver(RegisterDriverRequest) returns (RegisterDriverResponse) {}
 }
 
 message GetMeRequest {}
 
 message GetMeResponse {
   User user = 1;
+  DriverProfile driver_profile = 2;
+}
+
+message RegisterDriverRequest {
+  string license_number = 1;
+  string vehicle_plate = 2;
+  string vehicle_model = 3;
+}
+
+message RegisterDriverResponse {
+  DriverProfile driver_profile = 1;
+}
+
+message DriverProfile {
+  string license_number = 1;
+  string vehicle_plate = 2;
+  string vehicle_model = 3;
+  string status = 4;
+  google.protobuf.Timestamp created_at = 5;
 }
 
 message User {

@@ -39,3 +39,22 @@ func TestVerifyAccessToken(t *testing.T) {
 		}
 	}
 }
+
+func TestSignAccessTokenDriverClaim(t *testing.T) {
+	s := NewService(nil, "secret")
+
+	for _, driver := range []bool{true, false} {
+		tok, err := s.signAccessToken("u1", driver, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id, err := s.VerifyAccessToken(tok); err != nil || id != "u1" {
+			t.Fatalf("verify: got %q, %v", id, err)
+		}
+
+		var claims accessClaims
+		if _, _, err := jwt.NewParser().ParseUnverified(tok, &claims); err != nil || claims.Driver != driver {
+			t.Fatalf("driver=%v: got claims %+v, err %v", driver, claims, err)
+		}
+	}
+}
