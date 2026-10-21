@@ -4,7 +4,15 @@ package user.v1;
 
 import "google/protobuf/timestamp.proto";
 
-service UserService {}
+service UserService {
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {}
+}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  User user = 1;
+}
 
 message User {
   string id = 1;

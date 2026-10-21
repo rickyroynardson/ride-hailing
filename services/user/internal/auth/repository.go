@@ -49,6 +49,20 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (User
 	return u, passwordHash, err
 }
 
+func (r *AuthRepository) GetUserByID(ctx context.Context, id string) (User, error) {
+	var u User
+
+	err := r.DB.QueryRow(ctx,
+		`SELECT id, email, name, COALESCE(phone, ''), created_at FROM users WHERE id = $1`,
+		id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Phone, &u.CreatedAt)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrUserNotFound
+	}
+	return u, err
+}
+
 func (r *AuthRepository) CreateRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
 	_, err := r.DB.Exec(ctx, "INSERT INTO refresh_tokens(user_id, token, expires_at) VALUES ($1, $2, $3)", userID, tokenHash, expiresAt)
 	return err

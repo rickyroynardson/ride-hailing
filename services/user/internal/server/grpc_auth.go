@@ -105,8 +105,10 @@ func toStatus(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, auth.ErrUserExists):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, auth.ErrInvalidCreds), errors.Is(err, auth.ErrInvalidToken):
+	case errors.Is(err, auth.ErrInvalidCreds), errors.Is(err, auth.ErrInvalidToken), errors.Is(err, auth.ErrInvalidAuth):
 		return status.Error(codes.Unauthenticated, err.Error())
+	case errors.Is(err, auth.ErrUserNotFound):
+		return status.Error(codes.NotFound, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}

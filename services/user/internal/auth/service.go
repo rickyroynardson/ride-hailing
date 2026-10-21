@@ -110,6 +110,23 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	return err
 }
 
+func (s *AuthService) VerifyAccessToken(token string) (string, error) {
+	var claims jwt.RegisteredClaims
+
+	_, err := jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) {
+		return []byte(s.jwtSecret), nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
+	if err != nil || claims.Subject == "" {
+		return "", ErrInvalidAuth
+	}
+
+	return claims.Subject, nil
+}
+
+func (s *AuthService) GetUser(ctx context.Context, id string) (User, error) {
+	return s.repository.GetUserByID(ctx, id)
+}
+
 func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, error) {
 	now := time.Now()
 

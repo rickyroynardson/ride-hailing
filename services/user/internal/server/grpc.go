@@ -13,9 +13,13 @@ func NewGRPCServer(authService *auth.AuthService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
-	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()))
+	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(
+		metrics.UnaryServerInterceptor(),
+		authInterceptor(authService),
+	))
 
 	userv1.RegisterAuthServiceServer(gs, NewAuthServer(authService))
+	userv1.RegisterUserServiceServer(gs, NewUserServer(authService))
 	reflection.Register(gs)
 	metrics.InitializeMetrics(gs)
 
