@@ -20,7 +20,7 @@ func NewUserServer(service *user.UserService) *UserServer {
 func (s *UserServer) GetMe(ctx context.Context, _ *userv1.GetMeRequest) (*userv1.GetMeResponse, error) {
 	u, driver, err := s.service.GetMe(ctx, userIDFromContext(ctx))
 	if err != nil {
-		return nil, toStatus(err)
+		return nil, err
 	}
 
 	res := &userv1.GetMeResponse{User: toUserProto(u)}
@@ -37,7 +37,7 @@ func (s *UserServer) RegisterDriver(ctx context.Context, req *userv1.RegisterDri
 		VehicleModel:  req.GetVehicleModel(),
 	})
 	if err != nil {
-		return nil, toStatus(err)
+		return nil, err
 	}
 
 	return &userv1.RegisterDriverResponse{DriverProfile: toDriverProfileProto(driver)}, nil

@@ -6,16 +6,18 @@ import (
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
-func NewGRPCServer(authService *auth.AuthService, userService *user.UserService) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, authService *auth.AuthService, userService *user.UserService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
 	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
+		loggingInterceptor(lg),
 		authInterceptor(authService),
 	))
 

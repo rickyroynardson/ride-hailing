@@ -51,7 +51,7 @@ func main() {
 	userRepo := user.NewRepository(dbpool)
 	userService := user.NewService(userRepo)
 
-	gs := server.NewGRPCServer(authService, userService)
+	gs := server.NewGRPCServer(lg, authService, userService)
 
 	r := chi.NewRouter()
 

@@ -13,6 +13,7 @@ func New(service, env string) (*zap.Logger, error) {
 
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	cfg.InitialFields = map[string]any{"service": service}
+	cfg.DisableStacktrace = true
 
 	return cfg.Build()
 }
