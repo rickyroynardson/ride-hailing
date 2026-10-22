@@ -7,7 +7,10 @@
 package ridev1
 
 import (
+	context "context"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -15,10 +18,15 @@ import (
 // Requires gRPC-Go v1.64.0 or later.
 const _ = grpc.SupportPackageIsVersion9
 
+const (
+	RideService_CreateRide_FullMethodName = "/ride.v1.RideService/CreateRide"
+)
+
 // RideServiceClient is the client API for RideService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RideServiceClient interface {
+	CreateRide(ctx context.Context, in *CreateRideRequest, opts ...grpc.CallOption) (*CreateRideResponse, error)
 }
 
 type rideServiceClient struct {
@@ -29,10 +37,21 @@ func NewRideServiceClient(cc grpc.ClientConnInterface) RideServiceClient {
 	return &rideServiceClient{cc}
 }
 
+func (c *rideServiceClient) CreateRide(ctx context.Context, in *CreateRideRequest, opts ...grpc.CallOption) (*CreateRideResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateRideResponse)
+	err := c.cc.Invoke(ctx, RideService_CreateRide_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RideServiceServer is the server API for RideService service.
 // All implementations must embed UnimplementedRideServiceServer
 // for forward compatibility.
 type RideServiceServer interface {
+	CreateRide(context.Context, *CreateRideRequest) (*CreateRideResponse, error)
 	mustEmbedUnimplementedRideServiceServer()
 }
 
@@ -43,6 +62,9 @@ type RideServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRideServiceServer struct{}
 
+func (UnimplementedRideServiceServer) CreateRide(context.Context, *CreateRideRequest) (*CreateRideResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateRide not implemented")
+}
 func (UnimplementedRideServiceServer) mustEmbedUnimplementedRideServiceServer() {}
 func (UnimplementedRideServiceServer) testEmbeddedByValue()                     {}
 
@@ -64,13 +86,36 @@ func RegisterRideServiceServer(s grpc.ServiceRegistrar, srv RideServiceServer) {
 	s.RegisterService(&RideService_ServiceDesc, srv)
 }
 
+func _RideService_CreateRide_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRideRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).CreateRide(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_CreateRide_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).CreateRide(ctx, req.(*CreateRideRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RideService_ServiceDesc is the grpc.ServiceDesc for RideService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RideService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "ride.v1.RideService",
 	HandlerType: (*RideServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams:     []grpc.StreamDesc{},
-	Metadata:    "ride/v1/ride.proto",
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateRide",
+			Handler:    _RideService_CreateRide_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "ride/v1/ride.proto",
 }

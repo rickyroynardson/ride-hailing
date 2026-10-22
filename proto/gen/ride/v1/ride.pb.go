@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -20,21 +21,200 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Location struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Lat           float64                `protobuf:"fixed64,1,opt,name=lat,proto3" json:"lat,omitempty"`
+	Lng           float64                `protobuf:"fixed64,2,opt,name=lng,proto3" json:"lng,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Location) Reset() {
+	*x = Location{}
+	mi := &file_ride_v1_ride_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Location) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Location) ProtoMessage() {}
+
+func (x *Location) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Location.ProtoReflect.Descriptor instead.
+func (*Location) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Location) GetLat() float64 {
+	if x != nil {
+		return x.Lat
+	}
+	return 0
+}
+
+func (x *Location) GetLng() float64 {
+	if x != nil {
+		return x.Lng
+	}
+	return 0
+}
+
+type CreateRideRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Pickup        *Location              `protobuf:"bytes,1,opt,name=pickup,proto3" json:"pickup,omitempty"`
+	Dropoff       *Location              `protobuf:"bytes,2,opt,name=dropoff,proto3" json:"dropoff,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRideRequest) Reset() {
+	*x = CreateRideRequest{}
+	mi := &file_ride_v1_ride_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRideRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRideRequest) ProtoMessage() {}
+
+func (x *CreateRideRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRideRequest.ProtoReflect.Descriptor instead.
+func (*CreateRideRequest) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateRideRequest) GetPickup() *Location {
+	if x != nil {
+		return x.Pickup
+	}
+	return nil
+}
+
+func (x *CreateRideRequest) GetDropoff() *Location {
+	if x != nil {
+		return x.Dropoff
+	}
+	return nil
+}
+
+type CreateRideResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRideResponse) Reset() {
+	*x = CreateRideResponse{}
+	mi := &file_ride_v1_ride_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRideResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRideResponse) ProtoMessage() {}
+
+func (x *CreateRideResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRideResponse.ProtoReflect.Descriptor instead.
+func (*CreateRideResponse) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateRideResponse) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
 var File_ride_v1_ride_proto protoreflect.FileDescriptor
 
 const file_ride_v1_ride_proto_rawDesc = "" +
 	"\n" +
-	"\x12ride/v1/ride.proto\x12\aride.v12\r\n" +
-	"\vRideServiceB\x97\x01\n" +
+	"\x12ride/v1/ride.proto\x12\aride.v1\".\n" +
+	"\bLocation\x12\x10\n" +
+	"\x03lat\x18\x01 \x01(\x01R\x03lat\x12\x10\n" +
+	"\x03lng\x18\x02 \x01(\x01R\x03lng\"k\n" +
+	"\x11CreateRideRequest\x12)\n" +
+	"\x06pickup\x18\x01 \x01(\v2\x11.ride.v1.LocationR\x06pickup\x12+\n" +
+	"\adropoff\x18\x02 \x01(\v2\x11.ride.v1.LocationR\adropoff\"-\n" +
+	"\x12CreateRideResponse\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId2T\n" +
+	"\vRideService\x12E\n" +
+	"\n" +
+	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponseB\x97\x01\n" +
 	"\vcom.ride.v1B\tRideProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1;ridev1\xa2\x02\x03RXX\xaa\x02\aRide.V1\xca\x02\aRide\\V1\xe2\x02\x13Ride\\V1\\GPBMetadata\xea\x02\bRide::V1b\x06proto3"
 
-var file_ride_v1_ride_proto_goTypes = []any{}
+var (
+	file_ride_v1_ride_proto_rawDescOnce sync.Once
+	file_ride_v1_ride_proto_rawDescData []byte
+)
+
+func file_ride_v1_ride_proto_rawDescGZIP() []byte {
+	file_ride_v1_ride_proto_rawDescOnce.Do(func() {
+		file_ride_v1_ride_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ride_v1_ride_proto_rawDesc), len(file_ride_v1_ride_proto_rawDesc)))
+	})
+	return file_ride_v1_ride_proto_rawDescData
+}
+
+var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_ride_v1_ride_proto_goTypes = []any{
+	(*Location)(nil),           // 0: ride.v1.Location
+	(*CreateRideRequest)(nil),  // 1: ride.v1.CreateRideRequest
+	(*CreateRideResponse)(nil), // 2: ride.v1.CreateRideResponse
+}
 var file_ride_v1_ride_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: ride.v1.CreateRideRequest.pickup:type_name -> ride.v1.Location
+	0, // 1: ride.v1.CreateRideRequest.dropoff:type_name -> ride.v1.Location
+	1, // 2: ride.v1.RideService.CreateRide:input_type -> ride.v1.CreateRideRequest
+	2, // 3: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_ride_v1_ride_proto_init() }
@@ -48,12 +228,13 @@ func file_ride_v1_ride_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ride_v1_ride_proto_rawDesc), len(file_ride_v1_ride_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_ride_v1_ride_proto_goTypes,
 		DependencyIndexes: file_ride_v1_ride_proto_depIdxs,
+		MessageInfos:      file_ride_v1_ride_proto_msgTypes,
 	}.Build()
 	File_ride_v1_ride_proto = out.File
 	file_ride_v1_ride_proto_goTypes = nil

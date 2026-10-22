@@ -63,11 +63,11 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler())
 
 	sv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + cfg.HTTPPort,
 		Handler: r,
 	}
 
-	grpcLn, err := net.Listen("tcp", ":50051")
+	grpcLn, err := net.Listen("tcp", ":"+cfg.GRPCPort)
 	if err != nil {
 		lg.Fatal("failed to listen grpc", zap.Error(err))
 	}
@@ -82,7 +82,7 @@ func main() {
 			lg.Fatal("failed to start server", zap.Error(err))
 		}
 	}()
-	lg.Info("server is running", zap.String("http", ":8080"), zap.String("grpc", ":50051"))
+	lg.Info("server is running", zap.String("http", ":"+cfg.HTTPPort), zap.String("grpc", ":"+cfg.GRPCPort))
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

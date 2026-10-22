@@ -5,12 +5,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/services/ride/internal/ride"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
-func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier, rideService *ride.RideService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
@@ -20,7 +21,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier) *grpc.Server {
 		authInterceptor(verifier),
 	))
 
-	ridev1.RegisterRideServiceServer(gs, NewRideServer())
+	ridev1.RegisterRideServiceServer(gs, NewRideServer(rideService))
 	reflection.Register(gs)
 	metrics.InitializeMetrics(gs)
 

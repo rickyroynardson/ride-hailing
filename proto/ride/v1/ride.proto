@@ -2,4 +2,20 @@ syntax = "proto3";
 
 package ride.v1;
 
-service RideService {}
+service RideService {
+  rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
+}
+
+message Location {
+  double lat = 1;
+  double lng = 2;
+}
+
+message CreateRideRequest {
+  Location pickup = 1;
+  Location dropoff = 2;
+}
+
+message CreateRideResponse {
+  string ride_id = 1;
+}
