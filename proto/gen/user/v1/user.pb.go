@@ -59,10 +59,9 @@ func (*GetMeRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetMeResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	User  *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
-	// Unset when the user is not a driver.
-	DriverProfile *DriverProfile `protobuf:"bytes,2,opt,name=driver_profile,json=driverProfile,proto3" json:"driver_profile,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	DriverProfile *DriverProfile         `protobuf:"bytes,2,opt,name=driver_profile,json=driverProfile,proto3" json:"driver_profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -220,7 +219,6 @@ type DriverProfile struct {
 	LicenseNumber string                 `protobuf:"bytes,1,opt,name=license_number,json=licenseNumber,proto3" json:"license_number,omitempty"`
 	VehiclePlate  string                 `protobuf:"bytes,2,opt,name=vehicle_plate,json=vehiclePlate,proto3" json:"vehicle_plate,omitempty"`
 	VehicleModel  string                 `protobuf:"bytes,3,opt,name=vehicle_model,json=vehicleModel,proto3" json:"vehicle_model,omitempty"`
-	// pending, approved or suspended.
 	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields

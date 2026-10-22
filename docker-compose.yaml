@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
+      - ./scripts/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s
@@ -30,6 +31,21 @@ services:
       postgres:
         condition: service_healthy
 
+  ride:
+    container_name: ride-service
+    build:
+      context: .
+      dockerfile: services/ride/Dockerfile
+    ports:
+      - "8081:8080"
+      - "50052:50051"
+    environment:
+      POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/rides?sslmode=disable"
+      JWT_SECRET: "dev-secret-change-me"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -38,6 +54,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - user
+      - ride
 
 volumes:
   postgres_data:

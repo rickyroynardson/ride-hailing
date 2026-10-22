@@ -1,0 +1,5 @@
+syntax = "proto3";
+
+package ride.v1;
+
+service RideService {}
