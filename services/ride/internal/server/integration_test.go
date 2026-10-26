@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/pressly/goose/v3"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/ride"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/server"
 	"github.com/testcontainers/testcontainers-go"
@@ -48,12 +50,20 @@ func TestIntegration(t *testing.T) {
 	}
 	url := pg.MustConnectionString(ctx, "sslmode=disable")
 
-	migrate(t, url)
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+
+	// The startup check refuses an unmigrated database and accepts a migrated one.
+	if err := database.CheckSchema(ctx, pool); !errors.Is(err, database.ErrNotMigrated) {
+		t.Fatalf("schema check before migrating: got %v, want ErrNotMigrated", err)
+	}
+	migrate(t, url)
+	if err := database.CheckSchema(ctx, pool); err != nil {
+		t.Fatalf("schema check after migrating: %v", err)
+	}
 
 	client := startServer(t, pool)
 
@@ -145,6 +155,45 @@ func TestIntegration(t *testing.T) {
 
 	_, err = client.FilterAvailableDrivers(service, &ridev1.FilterAvailableDriversRequest{DriverIds: make([]string, 101)})
 	wantCode(t, "too many ids", err, codes.InvalidArgument)
+
+	// AssignDriver: requested → accepted, idempotent for the same driver, refused otherwise.
+	newRide := func(rider string) string {
+		t.Helper()
+		var id string
+		if err := pool.QueryRow(ctx,
+			`INSERT INTO rides(rider_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng) VALUES ($1, 0, 0, 1, 1) RETURNING id`, rider,
+		).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	const assignee, otherDriver = "cccccccc-0000-0000-0000-000000000001", "cccccccc-0000-0000-0000-000000000002"
+	assigned := newRide("bbbbbbbb-0000-0000-0000-000000000011")
+	assign := func(ride, driver string) error {
+		_, err := client.AssignDriver(service, &ridev1.AssignDriverRequest{RideId: ride, DriverId: driver})
+		return err
+	}
+
+	_, err = client.AssignDriver(rider, &ridev1.AssignDriverRequest{RideId: assigned, DriverId: assignee})
+	wantCode(t, "assign with user token", err, codes.PermissionDenied)
+	wantCode(t, "assign bad ids", assign("ride-1", assignee), codes.InvalidArgument)
+	for i := range 2 {
+		if err := assign(assigned, assignee); err != nil {
+			t.Fatalf("assign attempt %d: %v", i+1, err)
+		}
+	}
+	var st, drv string
+	pool.QueryRow(ctx, `SELECT status, driver_id FROM rides WHERE id = $1`, assigned).Scan(&st, &drv)
+	if st != "accepted" || drv != assignee {
+		t.Fatalf("assigned ride: status %q driver %q", st, drv)
+	}
+	wantCode(t, "assign taken ride to another driver", assign(assigned, otherDriver), codes.FailedPrecondition)
+	wantCode(t, "assign unknown ride", assign("cccccccc-0000-0000-0000-00000000ffff", otherDriver), codes.FailedPrecondition)
+	wantCode(t, "assign busy driver", assign(newRide("bbbbbbbb-0000-0000-0000-000000000012"), assignee), codes.AlreadyExists)
+
+	cancelled := newRide("bbbbbbbb-0000-0000-0000-000000000013")
+	pool.Exec(ctx, `UPDATE rides SET status = 'cancelled' WHERE id = $1`, cancelled)
+	wantCode(t, "assign cancelled ride", assign(cancelled, otherDriver), codes.FailedPrecondition)
 }
 
 func migrate(t *testing.T, url string) {

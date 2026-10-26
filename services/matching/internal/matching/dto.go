@@ -8,7 +8,12 @@ import (
 )
 
 var (
-	ErrInvalidInput = errors.New("invalid input")
+	ErrInvalidInput     = errors.New("invalid input")
+	ErrNotDriver        = errors.New("only approved drivers can answer offers")
+	ErrOfferUnavailable = errors.New("offer is no longer available")
+	// ErrAssignPending means ride's answer is unknown (it timed out or was unavailable). The offer stays accepted
+	// and Tick keeps confirming it, so the driver can retry or simply wait.
+	ErrAssignPending = errors.New("could not confirm the assignment yet; retry")
 	// errRideHasOffer and errDriverTaken come from the offers unique indexes; StartMatching handles both.
 	errRideHasOffer = errors.New("ride already has a pending offer")
 	errDriverTaken  = errors.New("driver already offered this ride or has another pending offer")
@@ -17,6 +22,13 @@ var (
 const (
 	// offerTTL is how long a driver has to answer before the offer moves on.
 	offerTTL = 15 * time.Second
+	// matchDeadline is how long matching keeps trying drivers before giving up as no_driver.
+	matchDeadline = 2 * time.Minute
+	// tickBatch caps how many waiting requests one Tick re-offers.
+	tickBatch = 100
+	// assignAttempts and assignBackoff bound AcceptOffer's retries when ride's answer is unknown.
+	assignAttempts = 3
+	assignBackoff  = 200 * time.Millisecond
 	// searchRadiusMeters and candidateLimit bound one search for drivers around the pickup.
 	searchRadiusMeters = 3000
 	candidateLimit     = 20
@@ -55,5 +67,13 @@ type Offer struct {
 	ID        string
 	RideID    string
 	DriverID  string
+	ExpiresAt time.Time
+}
+
+// DriverOffer is a pending offer as the driver sees it.
+type DriverOffer struct {
+	ID        string
+	RideID    string
+	Pickup    Location
 	ExpiresAt time.Time
 }

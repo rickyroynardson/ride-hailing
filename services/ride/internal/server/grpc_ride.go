@@ -38,6 +38,14 @@ func (s *RideServer) FilterAvailableDrivers(ctx context.Context, req *ridev1.Fil
 	return &ridev1.FilterAvailableDriversResponse{DriverIds: ids}, nil
 }
 
+func (s *RideServer) AssignDriver(ctx context.Context, req *ridev1.AssignDriverRequest) (*ridev1.AssignDriverResponse, error) {
+	if err := s.service.AssignDriver(ctx, req.GetRideId(), req.GetDriverId()); err != nil {
+		return nil, err
+	}
+
+	return &ridev1.AssignDriverResponse{}, nil
+}
+
 func toLocation(l *ridev1.Location) *ride.Location {
 	if l == nil {
 		return nil

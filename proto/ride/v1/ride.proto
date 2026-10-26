@@ -5,6 +5,7 @@ package ride.v1;
 service RideService {
   rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
   rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
+  rpc AssignDriver(AssignDriverRequest) returns (AssignDriverResponse);
 }
 
 message Location {
@@ -28,3 +29,13 @@ message FilterAvailableDriversRequest {
 message FilterAvailableDriversResponse {
   repeated string driver_ids = 1;
 }
+
+// Idempotent: succeeds again if the ride is already assigned to this driver.
+// FAILED_PRECONDITION: the ride is no longer requested (cancelled, or assigned to someone else).
+// ALREADY_EXISTS: the driver already has an active ride.
+message AssignDriverRequest {
+  string ride_id = 1;
+  string driver_id = 2;
+}
+
+message AssignDriverResponse {}

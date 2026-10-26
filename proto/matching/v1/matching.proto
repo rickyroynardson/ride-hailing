@@ -2,8 +2,13 @@ syntax = "proto3";
 
 package matching.v1;
 
+import "google/protobuf/timestamp.proto";
+
 service MatchingService {
   rpc StartMatching(StartMatchingRequest) returns (StartMatchingResponse) {}
+  rpc GetOffer(GetOfferRequest) returns (GetOfferResponse) {}
+  rpc AcceptOffer(AcceptOfferRequest) returns (AcceptOfferResponse) {}
+  rpc DeclineOffer(DeclineOfferRequest) returns (DeclineOfferResponse) {}
 }
 
 message Location {
@@ -21,3 +26,35 @@ message StartMatchingResponse {
   string offer_id = 1;
   string driver_id = 2;
 }
+
+// The driver is the authenticated caller.
+message GetOfferRequest {}
+
+// Unset when the driver has no pending offer.
+message GetOfferResponse {
+  Offer offer = 1;
+}
+
+message Offer {
+  string offer_id = 1;
+  string ride_id = 2;
+  Location pickup = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+// Idempotent for the driver who accepted. FAILED_PRECONDITION: the offer expired, was answered, or the ride is no
+// longer available. UNAVAILABLE: the assignment couldn't be confirmed yet; retrying is safe.
+message AcceptOfferRequest {
+  string offer_id = 1;
+}
+
+message AcceptOfferResponse {
+  string ride_id = 1;
+}
+
+// Idempotent for the driver who declined. FAILED_PRECONDITION: the offer expired or was accepted.
+message DeclineOfferRequest {
+  string offer_id = 1;
+}
+
+message DeclineOfferResponse {}

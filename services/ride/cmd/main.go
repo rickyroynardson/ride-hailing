@@ -44,6 +44,10 @@ func main() {
 	if err := dbpool.Ping(ctx); err != nil {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
+	if err := database.CheckSchema(ctx, dbpool); err != nil {
+		lg.Fatal("refusing to start", zap.Error(err),
+			zap.String("fix", `goose -dir services/ride/migrations postgres "<postgres_url>" up`))
+	}
 	database.RegisterPoolMetrics(dbpool)
 
 	rideRepo := ride.NewRepository(dbpool)

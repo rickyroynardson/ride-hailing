@@ -26,6 +26,12 @@ type rideRow struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type matchRequestRow struct {
+	RideID     string    `json:"rideId"`
+	Status     string    `json:"status"`
+	DeadlineAt time.Time `json:"deadlineAt"`
+}
+
 type offerRow struct {
 	ID        string    `json:"id"`
 	RideID    string    `json:"rideId"`
@@ -84,6 +90,18 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 		errs["offers"] = err.Error()
 	}
 	state["offers"] = offers
+
+	requests, err := collect(ctx, c.matchingDB, `SELECT ride_id, status, deadline_at FROM match_requests
+		ORDER BY created_at DESC LIMIT 50`,
+		func(row pgx.CollectableRow) (matchRequestRow, error) {
+			var x matchRequestRow
+			err := row.Scan(&x.RideID, &x.Status, &x.DeadlineAt)
+			return x, err
+		})
+	if err != nil {
+		errs["match_requests"] = err.Error()
+	}
+	state["matchRequests"] = requests
 
 	state["errors"] = errs
 	writeJSON(w, http.StatusOK, state)

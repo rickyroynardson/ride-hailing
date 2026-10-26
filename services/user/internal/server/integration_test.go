@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net"
 	"os"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/pressly/goose/v3"
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/server"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 	"github.com/testcontainers/testcontainers-go"
@@ -44,12 +46,20 @@ func TestIntegration(t *testing.T) {
 	}
 	url := pg.MustConnectionString(ctx, "sslmode=disable")
 
-	migrate(t, url)
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+
+	// The startup check refuses an unmigrated database and accepts a migrated one.
+	if err := database.CheckSchema(ctx, pool); !errors.Is(err, database.ErrNotMigrated) {
+		t.Fatalf("schema check before migrating: got %v, want ErrNotMigrated", err)
+	}
+	migrate(t, url)
+	if err := database.CheckSchema(ctx, pool); err != nil {
+		t.Fatalf("schema check after migrating: %v", err)
+	}
 
 	authClient, userClient := startServer(t, pool)
 

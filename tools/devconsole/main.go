@@ -81,6 +81,11 @@ func main() {
 	mux.HandleFunc("POST /api/actors/{id}/offline", c.handleOffline)
 	mux.HandleFunc("POST /api/actors/{id}/rides", c.handleRequestRide)
 	mux.HandleFunc("POST /api/rides/{id}/start-matching", c.handleStartMatching)
+	mux.HandleFunc("POST /api/actors/{id}/offer", c.handleGetOffer)
+	mux.HandleFunc("POST /api/actors/{id}/offers/{offer}/{answer}", c.handleAnswerOffer)
+	mux.HandleFunc("POST /api/actors/{id}/remove", c.handleRemoveActor)
+	mux.HandleFunc("POST /api/calls/clear", c.handleClearCalls)
+	mux.HandleFunc("POST /api/reset", c.handleReset)
 
 	addr := ":" + env("PORT", "9000")
 	log.Printf("devconsole on http://localhost%s", addr)

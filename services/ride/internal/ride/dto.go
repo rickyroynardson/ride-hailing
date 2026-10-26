@@ -9,6 +9,10 @@ var (
 	ErrInvalidInput = errors.New("invalid input")
 	ErrActiveRide   = errors.New("rider already has an active ride")
 	ErrTooManyIDs   = errors.New("too many driver ids")
+	// ErrRideUnavailable and ErrDriverBusy map to different status codes so matching can tell them apart:
+	// the first ends matching for the ride, the second only rules out this driver.
+	ErrRideUnavailable = errors.New("ride is no longer waiting for a driver")
+	ErrDriverBusy      = errors.New("driver already has an active ride")
 )
 
 type Location struct {

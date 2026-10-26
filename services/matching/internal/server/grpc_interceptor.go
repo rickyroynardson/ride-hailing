@@ -76,6 +76,12 @@ func toStatus(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, matching.ErrInvalidInput):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, matching.ErrNotDriver):
+		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.Is(err, matching.ErrOfferUnavailable):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, matching.ErrAssignPending):
+		return status.Error(codes.Unavailable, matching.ErrAssignPending.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.27-alpine AS builder
 
 WORKDIR /src
@@ -6,12 +7,15 @@ COPY proto/go.mod proto/go.sum ./proto/
 COPY services/user/go.mod services/user/go.sum ./services/user/
 
 WORKDIR /src/services/user
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY proto /src/proto
 COPY services/user /src/services/user
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /main ./cmd
+# Module and build caches persist across builds and are shared by every service image, so dependencies
+# compile once instead of on every build.
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /main ./cmd
 
 FROM gcr.io/distroless/static-debian12
 

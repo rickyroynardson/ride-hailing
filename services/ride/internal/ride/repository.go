@@ -55,3 +55,37 @@ func (r *RideRepository) BusyDrivers(ctx context.Context, driverIDs []string) (m
 	}
 	return busy, nil
 }
+
+// AssignDriver moves a requested ride to accepted with this driver. It is idempotent: if the ride is already
+// accepted or in progress with the same driver, it succeeds without changing anything, so matching can retry
+// after a timeout without knowing whether its first call landed.
+func (r *RideRepository) AssignDriver(ctx context.Context, rideID, driverID string) error {
+	tag, err := r.DB.Exec(ctx,
+		`UPDATE rides SET driver_id = $2, status = 'accepted', updated_at = now() WHERE id = $1 AND status = 'requested'`,
+		rideID, driverID,
+	)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		// rides_one_active_per_driver: this driver is on another ride.
+		return ErrDriverBusy
+	}
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+
+	var status, current string
+	err = r.DB.QueryRow(ctx, `SELECT status, COALESCE(driver_id::text, '') FROM rides WHERE id = $1`, rideID).Scan(&status, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrRideUnavailable
+	}
+	if err != nil {
+		return err
+	}
+	if current == driverID && (status == "accepted" || status == "in_progress") {
+		return nil
+	}
+	return ErrRideUnavailable
+}

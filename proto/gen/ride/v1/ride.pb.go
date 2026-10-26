@@ -257,6 +257,97 @@ func (x *FilterAvailableDriversResponse) GetDriverIds() []string {
 	return nil
 }
 
+// Idempotent: succeeds again if the ride is already assigned to this driver.
+// FAILED_PRECONDITION: the ride is no longer requested (cancelled, or assigned to someone else).
+// ALREADY_EXISTS: the driver already has an active ride.
+type AssignDriverRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	DriverId      string                 `protobuf:"bytes,2,opt,name=driver_id,json=driverId,proto3" json:"driver_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssignDriverRequest) Reset() {
+	*x = AssignDriverRequest{}
+	mi := &file_ride_v1_ride_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssignDriverRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssignDriverRequest) ProtoMessage() {}
+
+func (x *AssignDriverRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssignDriverRequest.ProtoReflect.Descriptor instead.
+func (*AssignDriverRequest) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AssignDriverRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+func (x *AssignDriverRequest) GetDriverId() string {
+	if x != nil {
+		return x.DriverId
+	}
+	return ""
+}
+
+type AssignDriverResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssignDriverResponse) Reset() {
+	*x = AssignDriverResponse{}
+	mi := &file_ride_v1_ride_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssignDriverResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssignDriverResponse) ProtoMessage() {}
+
+func (x *AssignDriverResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssignDriverResponse.ProtoReflect.Descriptor instead.
+func (*AssignDriverResponse) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{6}
+}
+
 var File_ride_v1_ride_proto protoreflect.FileDescriptor
 
 const file_ride_v1_ride_proto_rawDesc = "" +
@@ -275,11 +366,16 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"driver_ids\x18\x01 \x03(\tR\tdriverIds\"?\n" +
 	"\x1eFilterAvailableDriversResponse\x12\x1d\n" +
 	"\n" +
-	"driver_ids\x18\x01 \x03(\tR\tdriverIds2\xbf\x01\n" +
+	"driver_ids\x18\x01 \x03(\tR\tdriverIds\"K\n" +
+	"\x13AssignDriverRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12\x1b\n" +
+	"\tdriver_id\x18\x02 \x01(\tR\bdriverId\"\x16\n" +
+	"\x14AssignDriverResponse2\x8c\x02\n" +
 	"\vRideService\x12E\n" +
 	"\n" +
 	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponse\x12i\n" +
-	"\x16FilterAvailableDrivers\x12&.ride.v1.FilterAvailableDriversRequest\x1a'.ride.v1.FilterAvailableDriversResponseB\x97\x01\n" +
+	"\x16FilterAvailableDrivers\x12&.ride.v1.FilterAvailableDriversRequest\x1a'.ride.v1.FilterAvailableDriversResponse\x12K\n" +
+	"\fAssignDriver\x12\x1c.ride.v1.AssignDriverRequest\x1a\x1d.ride.v1.AssignDriverResponseB\x97\x01\n" +
 	"\vcom.ride.v1B\tRideProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1;ridev1\xa2\x02\x03RXX\xaa\x02\aRide.V1\xca\x02\aRide\\V1\xe2\x02\x13Ride\\V1\\GPBMetadata\xea\x02\bRide::V1b\x06proto3"
 
 var (
@@ -294,23 +390,27 @@ func file_ride_v1_ride_proto_rawDescGZIP() []byte {
 	return file_ride_v1_ride_proto_rawDescData
 }
 
-var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_ride_v1_ride_proto_goTypes = []any{
 	(*Location)(nil),                       // 0: ride.v1.Location
 	(*CreateRideRequest)(nil),              // 1: ride.v1.CreateRideRequest
 	(*CreateRideResponse)(nil),             // 2: ride.v1.CreateRideResponse
 	(*FilterAvailableDriversRequest)(nil),  // 3: ride.v1.FilterAvailableDriversRequest
 	(*FilterAvailableDriversResponse)(nil), // 4: ride.v1.FilterAvailableDriversResponse
+	(*AssignDriverRequest)(nil),            // 5: ride.v1.AssignDriverRequest
+	(*AssignDriverResponse)(nil),           // 6: ride.v1.AssignDriverResponse
 }
 var file_ride_v1_ride_proto_depIdxs = []int32{
 	0, // 0: ride.v1.CreateRideRequest.pickup:type_name -> ride.v1.Location
 	0, // 1: ride.v1.CreateRideRequest.dropoff:type_name -> ride.v1.Location
 	1, // 2: ride.v1.RideService.CreateRide:input_type -> ride.v1.CreateRideRequest
 	3, // 3: ride.v1.RideService.FilterAvailableDrivers:input_type -> ride.v1.FilterAvailableDriversRequest
-	2, // 4: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
-	4, // 5: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
+	5, // 4: ride.v1.RideService.AssignDriver:input_type -> ride.v1.AssignDriverRequest
+	2, // 5: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
+	4, // 6: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
+	6, // 7: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -327,7 +427,7 @@ func file_ride_v1_ride_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ride_v1_ride_proto_rawDesc), len(file_ride_v1_ride_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

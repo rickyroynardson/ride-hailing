@@ -2,6 +2,7 @@ package ride
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 )
 
@@ -55,3 +56,10 @@ func (s *RideService) FilterAvailableDrivers(ctx context.Context, driverIDs []st
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func (s *RideService) AssignDriver(ctx context.Context, rideID, driverID string) error {
+	if !uuidPattern.MatchString(rideID) || !uuidPattern.MatchString(driverID) {
+		return fmt.Errorf("%w: ride_id and driver_id must be UUIDs", ErrInvalidInput)
+	}
+	return s.repository.AssignDriver(ctx, rideID, driverID)
+}

@@ -48,22 +48,13 @@ func main() {
 
 	// Every replica runs this; that is harmless, since pruning re-checks each driver and is idempotent.
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-cleanupCtx.Done():
-				return
-			case <-ticker.C:
-				if n, err := locationService.PruneStale(cleanupCtx); err != nil && cleanupCtx.Err() == nil {
-					lg.Warn("failed to prune stale drivers", zap.Error(err))
-				} else if n > 0 {
-					lg.Debug("pruned stale drivers", zap.Int("count", n))
-				}
-			}
+	go runLoop(cleanupCtx, lg, "stale driver cleanup", time.Minute, 5*time.Minute, func(ctx context.Context) error {
+		n, err := locationService.PruneStale(ctx)
+		if n > 0 {
+			lg.Debug("pruned stale drivers", zap.Int("count", n))
 		}
-	}()
+		return err
+	})
 
 	r := chi.NewRouter()
 

@@ -9,6 +9,7 @@ package matchingv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -178,11 +179,332 @@ func (x *StartMatchingResponse) GetDriverId() string {
 	return ""
 }
 
+// The driver is the authenticated caller.
+type GetOfferRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOfferRequest) Reset() {
+	*x = GetOfferRequest{}
+	mi := &file_matching_v1_matching_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOfferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOfferRequest) ProtoMessage() {}
+
+func (x *GetOfferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOfferRequest.ProtoReflect.Descriptor instead.
+func (*GetOfferRequest) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{3}
+}
+
+// Unset when the driver has no pending offer.
+type GetOfferResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Offer         *Offer                 `protobuf:"bytes,1,opt,name=offer,proto3" json:"offer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOfferResponse) Reset() {
+	*x = GetOfferResponse{}
+	mi := &file_matching_v1_matching_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOfferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOfferResponse) ProtoMessage() {}
+
+func (x *GetOfferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOfferResponse.ProtoReflect.Descriptor instead.
+func (*GetOfferResponse) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetOfferResponse) GetOffer() *Offer {
+	if x != nil {
+		return x.Offer
+	}
+	return nil
+}
+
+type Offer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OfferId       string                 `protobuf:"bytes,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	RideId        string                 `protobuf:"bytes,2,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	Pickup        *Location              `protobuf:"bytes,3,opt,name=pickup,proto3" json:"pickup,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Offer) Reset() {
+	*x = Offer{}
+	mi := &file_matching_v1_matching_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Offer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Offer) ProtoMessage() {}
+
+func (x *Offer) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Offer.ProtoReflect.Descriptor instead.
+func (*Offer) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Offer) GetOfferId() string {
+	if x != nil {
+		return x.OfferId
+	}
+	return ""
+}
+
+func (x *Offer) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+func (x *Offer) GetPickup() *Location {
+	if x != nil {
+		return x.Pickup
+	}
+	return nil
+}
+
+func (x *Offer) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+// Idempotent for the driver who accepted. FAILED_PRECONDITION: the offer expired, was answered, or the ride is no
+// longer available. UNAVAILABLE: the assignment couldn't be confirmed yet; retrying is safe.
+type AcceptOfferRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OfferId       string                 `protobuf:"bytes,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptOfferRequest) Reset() {
+	*x = AcceptOfferRequest{}
+	mi := &file_matching_v1_matching_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptOfferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptOfferRequest) ProtoMessage() {}
+
+func (x *AcceptOfferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptOfferRequest.ProtoReflect.Descriptor instead.
+func (*AcceptOfferRequest) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *AcceptOfferRequest) GetOfferId() string {
+	if x != nil {
+		return x.OfferId
+	}
+	return ""
+}
+
+type AcceptOfferResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptOfferResponse) Reset() {
+	*x = AcceptOfferResponse{}
+	mi := &file_matching_v1_matching_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptOfferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptOfferResponse) ProtoMessage() {}
+
+func (x *AcceptOfferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptOfferResponse.ProtoReflect.Descriptor instead.
+func (*AcceptOfferResponse) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AcceptOfferResponse) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+// Idempotent for the driver who declined. FAILED_PRECONDITION: the offer expired or was accepted.
+type DeclineOfferRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OfferId       string                 `protobuf:"bytes,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeclineOfferRequest) Reset() {
+	*x = DeclineOfferRequest{}
+	mi := &file_matching_v1_matching_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeclineOfferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeclineOfferRequest) ProtoMessage() {}
+
+func (x *DeclineOfferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeclineOfferRequest.ProtoReflect.Descriptor instead.
+func (*DeclineOfferRequest) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeclineOfferRequest) GetOfferId() string {
+	if x != nil {
+		return x.OfferId
+	}
+	return ""
+}
+
+type DeclineOfferResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeclineOfferResponse) Reset() {
+	*x = DeclineOfferResponse{}
+	mi := &file_matching_v1_matching_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeclineOfferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeclineOfferResponse) ProtoMessage() {}
+
+func (x *DeclineOfferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeclineOfferResponse.ProtoReflect.Descriptor instead.
+func (*DeclineOfferResponse) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{9}
+}
+
 var File_matching_v1_matching_proto protoreflect.FileDescriptor
 
 const file_matching_v1_matching_proto_rawDesc = "" +
 	"\n" +
-	"\x1amatching/v1/matching.proto\x12\vmatching.v1\".\n" +
+	"\x1amatching/v1/matching.proto\x12\vmatching.v1\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
 	"\bLocation\x12\x10\n" +
 	"\x03lat\x18\x01 \x01(\x01R\x03lat\x12\x10\n" +
 	"\x03lng\x18\x02 \x01(\x01R\x03lng\"^\n" +
@@ -191,9 +513,28 @@ const file_matching_v1_matching_proto_rawDesc = "" +
 	"\x06pickup\x18\x02 \x01(\v2\x15.matching.v1.LocationR\x06pickup\"O\n" +
 	"\x15StartMatchingResponse\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\tR\aofferId\x12\x1b\n" +
-	"\tdriver_id\x18\x02 \x01(\tR\bdriverId2k\n" +
+	"\tdriver_id\x18\x02 \x01(\tR\bdriverId\"\x11\n" +
+	"\x0fGetOfferRequest\"<\n" +
+	"\x10GetOfferResponse\x12(\n" +
+	"\x05offer\x18\x01 \x01(\v2\x12.matching.v1.OfferR\x05offer\"\xa5\x01\n" +
+	"\x05Offer\x12\x19\n" +
+	"\boffer_id\x18\x01 \x01(\tR\aofferId\x12\x17\n" +
+	"\aride_id\x18\x02 \x01(\tR\x06rideId\x12-\n" +
+	"\x06pickup\x18\x03 \x01(\v2\x15.matching.v1.LocationR\x06pickup\x129\n" +
+	"\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"/\n" +
+	"\x12AcceptOfferRequest\x12\x19\n" +
+	"\boffer_id\x18\x01 \x01(\tR\aofferId\".\n" +
+	"\x13AcceptOfferResponse\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\"0\n" +
+	"\x13DeclineOfferRequest\x12\x19\n" +
+	"\boffer_id\x18\x01 \x01(\tR\aofferId\"\x16\n" +
+	"\x14DeclineOfferResponse2\xe1\x02\n" +
 	"\x0fMatchingService\x12X\n" +
-	"\rStartMatching\x12!.matching.v1.StartMatchingRequest\x1a\".matching.v1.StartMatchingResponse\"\x00B\xb7\x01\n" +
+	"\rStartMatching\x12!.matching.v1.StartMatchingRequest\x1a\".matching.v1.StartMatchingResponse\"\x00\x12I\n" +
+	"\bGetOffer\x12\x1c.matching.v1.GetOfferRequest\x1a\x1d.matching.v1.GetOfferResponse\"\x00\x12R\n" +
+	"\vAcceptOffer\x12\x1f.matching.v1.AcceptOfferRequest\x1a .matching.v1.AcceptOfferResponse\"\x00\x12U\n" +
+	"\fDeclineOffer\x12 .matching.v1.DeclineOfferRequest\x1a!.matching.v1.DeclineOfferResponse\"\x00B\xb7\x01\n" +
 	"\x0fcom.matching.v1B\rMatchingProtoP\x01ZHgithub.com/rickyroynardson/ride-hailing/proto/gen/matching/v1;matchingv1\xa2\x02\x03MXX\xaa\x02\vMatching.V1\xca\x02\vMatching\\V1\xe2\x02\x17Matching\\V1\\GPBMetadata\xea\x02\fMatching::V1b\x06proto3"
 
 var (
@@ -208,21 +549,38 @@ func file_matching_v1_matching_proto_rawDescGZIP() []byte {
 	return file_matching_v1_matching_proto_rawDescData
 }
 
-var file_matching_v1_matching_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_matching_v1_matching_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_matching_v1_matching_proto_goTypes = []any{
 	(*Location)(nil),              // 0: matching.v1.Location
 	(*StartMatchingRequest)(nil),  // 1: matching.v1.StartMatchingRequest
 	(*StartMatchingResponse)(nil), // 2: matching.v1.StartMatchingResponse
+	(*GetOfferRequest)(nil),       // 3: matching.v1.GetOfferRequest
+	(*GetOfferResponse)(nil),      // 4: matching.v1.GetOfferResponse
+	(*Offer)(nil),                 // 5: matching.v1.Offer
+	(*AcceptOfferRequest)(nil),    // 6: matching.v1.AcceptOfferRequest
+	(*AcceptOfferResponse)(nil),   // 7: matching.v1.AcceptOfferResponse
+	(*DeclineOfferRequest)(nil),   // 8: matching.v1.DeclineOfferRequest
+	(*DeclineOfferResponse)(nil),  // 9: matching.v1.DeclineOfferResponse
+	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
 }
 var file_matching_v1_matching_proto_depIdxs = []int32{
-	0, // 0: matching.v1.StartMatchingRequest.pickup:type_name -> matching.v1.Location
-	1, // 1: matching.v1.MatchingService.StartMatching:input_type -> matching.v1.StartMatchingRequest
-	2, // 2: matching.v1.MatchingService.StartMatching:output_type -> matching.v1.StartMatchingResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0,  // 0: matching.v1.StartMatchingRequest.pickup:type_name -> matching.v1.Location
+	5,  // 1: matching.v1.GetOfferResponse.offer:type_name -> matching.v1.Offer
+	0,  // 2: matching.v1.Offer.pickup:type_name -> matching.v1.Location
+	10, // 3: matching.v1.Offer.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 4: matching.v1.MatchingService.StartMatching:input_type -> matching.v1.StartMatchingRequest
+	3,  // 5: matching.v1.MatchingService.GetOffer:input_type -> matching.v1.GetOfferRequest
+	6,  // 6: matching.v1.MatchingService.AcceptOffer:input_type -> matching.v1.AcceptOfferRequest
+	8,  // 7: matching.v1.MatchingService.DeclineOffer:input_type -> matching.v1.DeclineOfferRequest
+	2,  // 8: matching.v1.MatchingService.StartMatching:output_type -> matching.v1.StartMatchingResponse
+	4,  // 9: matching.v1.MatchingService.GetOffer:output_type -> matching.v1.GetOfferResponse
+	7,  // 10: matching.v1.MatchingService.AcceptOffer:output_type -> matching.v1.AcceptOfferResponse
+	9,  // 11: matching.v1.MatchingService.DeclineOffer:output_type -> matching.v1.DeclineOfferResponse
+	8,  // [8:12] is the sub-list for method output_type
+	4,  // [4:8] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_matching_v1_matching_proto_init() }
@@ -236,7 +594,7 @@ func file_matching_v1_matching_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_matching_v1_matching_proto_rawDesc), len(file_matching_v1_matching_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -74,3 +74,154 @@ func (r *MatchingRepository) CreateOffer(ctx context.Context, rideID, driverID s
 	}
 	return o, err
 }
+
+// CreateRequest records that the ride needs a driver. A retried StartMatching keeps the first request, so its
+// deadline isn't pushed back. It returns the request's status.
+func (r *MatchingRepository) CreateRequest(ctx context.Context, rideID string, pickup Location, deadline time.Time) (string, error) {
+	if _, err := r.DB.Exec(ctx,
+		`INSERT INTO match_requests(ride_id, pickup_lat, pickup_lng, deadline_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (ride_id) DO NOTHING`,
+		rideID, pickup.Lat, pickup.Lng, deadline,
+	); err != nil {
+		return "", err
+	}
+
+	var status string
+	err := r.DB.QueryRow(ctx, `SELECT status FROM match_requests WHERE ride_id = $1`, rideID).Scan(&status)
+	return status, err
+}
+
+// ExpireOffers marks pending offers past their deadline as expired. One statement, so replicas running the loop
+// at the same time can't both act on the same offer.
+func (r *MatchingRepository) ExpireOffers(ctx context.Context) (int64, error) {
+	tag, err := r.DB.Exec(ctx,
+		`UPDATE offers SET status = 'expired', updated_at = now() WHERE status = 'pending' AND expires_at < now()`)
+	return tag.RowsAffected(), err
+}
+
+// GiveUp ends requests past their deadline as no_driver. A request with a pending offer waits for that offer to be
+// answered or expire first, and one with an accepted offer waits for ride to confirm it, so a ride is never given
+// up under a driver who has it.
+func (r *MatchingRepository) GiveUp(ctx context.Context) ([]string, error) {
+	rows, err := r.DB.Query(ctx,
+		`UPDATE match_requests m SET status = 'no_driver', updated_at = now()
+		WHERE m.status = 'matching' AND m.deadline_at < now()
+		AND NOT EXISTS (SELECT 1 FROM offers o WHERE o.ride_id = m.ride_id AND o.status IN ('pending', 'accepted'))
+		RETURNING m.ride_id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// WaitingRequests returns requests still matching with no pending or accepted offer: their last offer expired or
+// was declined, or no driver was available yet. Oldest first, so long-waiting riders aren't starved.
+func (r *MatchingRepository) WaitingRequests(ctx context.Context, limit int) ([]StartInput, error) {
+	rows, err := r.DB.Query(ctx,
+		`SELECT m.ride_id, m.pickup_lat, m.pickup_lng FROM match_requests m
+		WHERE m.status = 'matching'
+		AND NOT EXISTS (SELECT 1 FROM offers o WHERE o.ride_id = m.ride_id AND o.status IN ('pending', 'accepted'))
+		ORDER BY m.created_at LIMIT $1`,
+		limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (StartInput, error) {
+		in := StartInput{Pickup: &Location{}}
+		err := row.Scan(&in.RideID, &in.Pickup.Lat, &in.Pickup.Lng)
+		return in, err
+	})
+}
+
+// HasAcceptedOffer reports whether a driver accepted the ride and ride hasn't confirmed it yet (or has, and the
+// request is about to be marked matched). Either way, nobody else may be offered the ride.
+func (r *MatchingRepository) HasAcceptedOffer(ctx context.Context, rideID string) (bool, error) {
+	var ok bool
+	err := r.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM offers WHERE ride_id = $1 AND status = 'accepted')`, rideID).Scan(&ok)
+	return ok, err
+}
+
+// DriverPendingOffer returns the driver's unexpired pending offer with its pickup, or nil.
+func (r *MatchingRepository) DriverPendingOffer(ctx context.Context, driverID string) (*DriverOffer, error) {
+	var o DriverOffer
+	err := r.DB.QueryRow(ctx,
+		`SELECT o.id, o.ride_id, m.pickup_lat, m.pickup_lng, o.expires_at
+		FROM offers o JOIN match_requests m ON m.ride_id = o.ride_id
+		WHERE o.driver_id = $1 AND o.status = 'pending' AND o.expires_at > now()`,
+		driverID,
+	).Scan(&o.ID, &o.RideID, &o.Pickup.Lat, &o.Pickup.Lng, &o.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// AnswerOffer moves the driver's pending, unexpired offer to answer ('accepted' or 'declined') and returns its
+// ride. Answering again with the same answer succeeds (a retried request); anything else is ErrOfferUnavailable.
+func (r *MatchingRepository) AnswerOffer(ctx context.Context, offerID, driverID, answer string) (string, error) {
+	var rideID string
+	err := r.DB.QueryRow(ctx,
+		`UPDATE offers SET status = $3, updated_at = now()
+		WHERE id = $1 AND driver_id = $2 AND status = 'pending' AND expires_at > now()
+		RETURNING ride_id`,
+		offerID, driverID, answer,
+	).Scan(&rideID)
+	if err == nil || !errors.Is(err, pgx.ErrNoRows) {
+		return rideID, err
+	}
+
+	var current string
+	err = r.DB.QueryRow(ctx, `SELECT status, ride_id FROM offers WHERE id = $1 AND driver_id = $2`, offerID, driverID).Scan(&current, &rideID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && current != answer) {
+		return "", ErrOfferUnavailable
+	}
+	return rideID, err
+}
+
+// CancelAccepted marks an accepted offer cancelled after ride refused the assignment.
+func (r *MatchingRepository) CancelAccepted(ctx context.Context, offerID string) error {
+	_, err := r.DB.Exec(ctx, `UPDATE offers SET status = 'cancelled', updated_at = now() WHERE id = $1 AND status = 'accepted'`, offerID)
+	return err
+}
+
+// FinishRequest ends a request still matching with status ('matched' or 'cancelled') and reports whether it did,
+// so a confirmation running twice (AcceptOffer and Tick) counts once.
+func (r *MatchingRepository) FinishRequest(ctx context.Context, rideID, status string) (bool, error) {
+	tag, err := r.DB.Exec(ctx,
+		`UPDATE match_requests SET status = $2, updated_at = now() WHERE ride_id = $1 AND status = 'matching'`, rideID, status)
+	return tag.RowsAffected() == 1, err
+}
+
+// UnconfirmedAccepts returns accepted offers whose request is still matching: ride hasn't confirmed them yet,
+// usually because AcceptOffer couldn't reach it.
+func (r *MatchingRepository) UnconfirmedAccepts(ctx context.Context, limit int) ([]Offer, error) {
+	rows, err := r.DB.Query(ctx,
+		`SELECT o.id, o.ride_id, o.driver_id, o.expires_at FROM offers o JOIN match_requests m ON m.ride_id = o.ride_id
+		WHERE o.status = 'accepted' AND m.status = 'matching' ORDER BY o.updated_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Offer, error) {
+		var o Offer
+		err := row.Scan(&o.ID, &o.RideID, &o.DriverID, &o.ExpiresAt)
+		return o, err
+	})
+}
+
+// MatchingRequest returns the ride's request if it is still matching, or nil.
+func (r *MatchingRepository) MatchingRequest(ctx context.Context, rideID string) (*StartInput, error) {
+	in := StartInput{RideID: rideID, Pickup: &Location{}}
+	err := r.DB.QueryRow(ctx,
+		`SELECT pickup_lat, pickup_lng FROM match_requests WHERE ride_id = $1 AND status = 'matching'`, rideID,
+	).Scan(&in.Pickup.Lat, &in.Pickup.Lng)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &in, nil
+}

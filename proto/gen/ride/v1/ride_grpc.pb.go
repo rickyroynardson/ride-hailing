@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	RideService_CreateRide_FullMethodName             = "/ride.v1.RideService/CreateRide"
 	RideService_FilterAvailableDrivers_FullMethodName = "/ride.v1.RideService/FilterAvailableDrivers"
+	RideService_AssignDriver_FullMethodName           = "/ride.v1.RideService/AssignDriver"
 )
 
 // RideServiceClient is the client API for RideService service.
@@ -29,6 +30,7 @@ const (
 type RideServiceClient interface {
 	CreateRide(ctx context.Context, in *CreateRideRequest, opts ...grpc.CallOption) (*CreateRideResponse, error)
 	FilterAvailableDrivers(ctx context.Context, in *FilterAvailableDriversRequest, opts ...grpc.CallOption) (*FilterAvailableDriversResponse, error)
+	AssignDriver(ctx context.Context, in *AssignDriverRequest, opts ...grpc.CallOption) (*AssignDriverResponse, error)
 }
 
 type rideServiceClient struct {
@@ -59,12 +61,23 @@ func (c *rideServiceClient) FilterAvailableDrivers(ctx context.Context, in *Filt
 	return out, nil
 }
 
+func (c *rideServiceClient) AssignDriver(ctx context.Context, in *AssignDriverRequest, opts ...grpc.CallOption) (*AssignDriverResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AssignDriverResponse)
+	err := c.cc.Invoke(ctx, RideService_AssignDriver_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RideServiceServer is the server API for RideService service.
 // All implementations must embed UnimplementedRideServiceServer
 // for forward compatibility.
 type RideServiceServer interface {
 	CreateRide(context.Context, *CreateRideRequest) (*CreateRideResponse, error)
 	FilterAvailableDrivers(context.Context, *FilterAvailableDriversRequest) (*FilterAvailableDriversResponse, error)
+	AssignDriver(context.Context, *AssignDriverRequest) (*AssignDriverResponse, error)
 	mustEmbedUnimplementedRideServiceServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedRideServiceServer) CreateRide(context.Context, *CreateRideReq
 }
 func (UnimplementedRideServiceServer) FilterAvailableDrivers(context.Context, *FilterAvailableDriversRequest) (*FilterAvailableDriversResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FilterAvailableDrivers not implemented")
+}
+func (UnimplementedRideServiceServer) AssignDriver(context.Context, *AssignDriverRequest) (*AssignDriverResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AssignDriver not implemented")
 }
 func (UnimplementedRideServiceServer) mustEmbedUnimplementedRideServiceServer() {}
 func (UnimplementedRideServiceServer) testEmbeddedByValue()                     {}
@@ -138,6 +154,24 @@ func _RideService_FilterAvailableDrivers_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RideService_AssignDriver_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssignDriverRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).AssignDriver(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_AssignDriver_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).AssignDriver(ctx, req.(*AssignDriverRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RideService_ServiceDesc is the grpc.ServiceDesc for RideService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var RideService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FilterAvailableDrivers",
 			Handler:    _RideService_FilterAvailableDrivers_Handler,
+		},
+		{
+			MethodName: "AssignDriver",
+			Handler:    _RideService_AssignDriver_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

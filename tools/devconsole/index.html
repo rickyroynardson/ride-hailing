@@ -72,6 +72,9 @@
   .empty { padding: 16px 12px; color: var(--muted); }
   .legend { display: flex; gap: 12px; color: var(--muted); font-size: 12px; align-items: center; }
   .legend span { display: inline-flex; gap: 5px; align-items: center; }
+  .offer { margin-top: 8px; padding: 8px; border-radius: 6px; background: var(--warn-soft); }
+  .offer .actions { margin-top: 6px; }
+  button.danger { color: var(--bad); }
   .toast { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); padding: 7px 12px; border-radius: 8px; z-index: 2000; display: none; max-width: 70vw; }
   @media (max-width: 1100px) { .layout { grid-template-columns: 250px 1fr; } .side { grid-column: 1 / -1; height: 45vh; border-left: 0; border-top: 1px solid var(--border); } .layout { grid-template-rows: 1fr auto; } }
 </style>
@@ -87,6 +90,8 @@
       <span><i class="dot" style="background:var(--dropoff)"></i>dropoff</span>
     </div>
     <div class="status" id="status">connecting…</div>
+    <button onclick="clearLog()">Clear log</button>
+    <button onclick="resetAll()" title="Deletes all rides, offers, match requests and driver locations, plus users the console created">Reset all data</button>
   </header>
   <div class="layout">
     <aside>
@@ -109,7 +114,7 @@
 <div class="toast" id="toast"></div>
 <script>
 const ui = { selected: null, tab: 'calls', draft: {}, expanded: new Set(), showHeartbeats: false, actorFilter: '' };
-let state = { actors: [], drivers: [], rides: [], offers: [], calls: [], errors: {}, now: Date.now() };
+let state = { actors: [], drivers: [], rides: [], offers: [], matchRequests: [], calls: [], errors: {}, now: Date.now() };
 
 const map = L.map('map').setView([-6.1754, 106.8272], 14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
@@ -120,7 +125,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const short = id => id ? id.slice(0, 8) : '—';
 const nameOf = id => (state.actors.find(a => a.id === id) || {}).name || short(id);
 const ago = t => { const s = Math.max(0, Math.round((state.now - t) / 1000)); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`; };
-const STATUS_PILL = { requested: 'info', accepted: 'ok', in_progress: 'ok', completed: '', cancelled: 'bad', pending: 'info', declined: 'warn', expired: 'warn' };
+const STATUS_PILL = { requested: 'info', accepted: 'ok', in_progress: 'ok', completed: '', cancelled: 'bad', pending: 'info', declined: 'warn', expired: 'warn', matching: 'info', matched: 'ok', no_driver: 'bad' };
 const codeClass = c => c === 'OK' ? 'ok' : ['Internal', 'Unavailable', 'Unknown', 'DeadlineExceeded', 'DataLoss'].includes(c) ? 'bad' : 'warn';
 const outcome = o => (o || '').replace('UPDATE_OUTCOME_', '').toLowerCase();
 
@@ -160,6 +165,17 @@ map.on('click', async e => {
 });
 
 async function goOffline(id) { await api('POST', `/api/actors/${id}/offline`); await poll(); }
+async function checkOffer(id) { await api('POST', `/api/actors/${id}/offer`); ui.tab = 'calls'; await poll(); }
+async function answerOffer(id, offerId, answer) { await api('POST', `/api/actors/${id}/offers/${offerId}/${answer}`); await poll(); }
+async function removeActor(id) { await api('POST', `/api/actors/${id}/remove`); if (ui.selected === id) ui.selected = null; await poll(); }
+async function clearLog() { await api('POST', '/api/calls/clear'); ui.expanded.clear(); await poll(); }
+async function resetAll() {
+  if (!confirm('Reset all dev data?\n\nDeletes every ride, offer, match request and driver location, and the users this console created. Users you registered yourself are kept.')) return;
+  const removed = await api('POST', '/api/reset');
+  ui.selected = null; ui.draft = {}; ui.expanded.clear();
+  toast(`Reset: ${Object.entries(removed).map(([k, n]) => `${n} ${k}`).join(', ')}`);
+  await poll();
+}
 async function requestRide(id) {
   await api('POST', `/api/actors/${id}/rides`, ui.draft);
   ui.draft = {}; ui.tab = 'rides';
@@ -177,12 +193,25 @@ function renderActors() {
     const expiresIn = Math.round(a.tokenExpiry - state.now / 1000);
     const claims = a.claims.map(c => `<span class="pill ok">${esc(c)}</span>`).join(' ');
     let status = '', actions = '';
+    let extra = '';
     if (a.kind === 'driver') {
       status = a.online ? '<span class="pill ok">online</span>' : a.location ? '<span class="pill">offline</span>' : '<span class="pill">not placed</span>';
       if (a.lastOutcome) status += ` <span class="pill ${a.lastOutcome.startsWith('UPDATE_OUTCOME_STORED') ? 'ok' : 'warn'}">${esc(outcome(a.lastOutcome))}</span>`;
       if (a.online) actions = `<button onclick="event.stopPropagation(); goOffline('${a.id}')">Go offline</button>`;
+      actions += `<button onclick="event.stopPropagation(); checkOffer('${a.id}')" title="Calls GetOffer as this driver, like the driver app polling">GetOffer</button>`;
+      const offer = state.offers.find(o => o.driverId === a.id && o.status === 'pending');
+      const onRide = state.rides.find(r => r.driverId === a.id && ['accepted', 'in_progress'].includes(r.status));
+      if (offer) {
+        const left = Math.round((Date.parse(offer.expiresAt) - state.now) / 1000);
+        extra = `<div class="offer" onclick="event.stopPropagation()"><b>Offer</b> for ride <span class="mono">${short(offer.rideId)}</span> · ${left > 0 ? left + 's left' : 'expiring…'}
+          <div class="actions"><button class="primary" onclick="answerOffer('${a.id}', '${offer.id}', 'accept')">Accept</button>
+          <button onclick="answerOffer('${a.id}', '${offer.id}', 'decline')">Decline</button></div></div>`;
+      } else if (onRide) {
+        status += ` <span class="pill info">on ride ${short(onRide.id)}</span>`;
+      }
     } else {
-      if (a.rideId) status = `<span class="pill info">ride ${short(a.rideId)}</span>`;
+      const ride = state.rides.find(r => r.id === a.rideId);
+      if (ride) status = `<span class="pill ${STATUS_PILL[ride.status] || ''}">${esc(ride.status)}</span>${ride.driverId ? ` <span class="pill ok">${esc(nameOf(ride.driverId))}</span>` : ''}`;
       if (a.id === ui.selected) {
         actions = `<button class="primary" ${ui.draft.pickup && ui.draft.dropoff ? '' : 'disabled'} onclick="event.stopPropagation(); requestRide('${a.id}')">Request ride</button>`
           + (ui.draft.pickup ? `<button onclick="event.stopPropagation(); ui.draft = {}; render()">Clear</button>` : '');
@@ -193,7 +222,8 @@ function renderActors() {
         <span class="name">${esc(a.name)}</span> ${claims} <span style="margin-left:auto">${status}</span></div>
       <div class="meta mono">${esc(a.id)}</div>
       <div class="meta">token refreshes automatically · expires in ${expiresIn > 0 ? expiresIn + 's' : 'now'}</div>
-      ${actions ? `<div class="actions">${actions}</div>` : ''}
+      ${extra}
+      <div class="actions">${actions}<button class="danger" style="margin-left:auto" onclick="event.stopPropagation(); removeActor('${a.id}')" title="Stops the heartbeat, goes offline, forgets the session">Remove</button></div>
     </div>`;
   }).join('') : '<div class="empty">No actors yet. Add a rider or a driver.</div>';
 }
@@ -243,11 +273,21 @@ function renderPanel() {
       </div>`;
     }).join('') : '<div class="empty">No calls yet.</div>';
   } else if (ui.tab === 'rides') {
-    panel.innerHTML = err('rides') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th></th></tr>${state.rides.map(r => `<tr>
+    const requests = Object.fromEntries((state.matchRequests || []).map(m => [m.rideId, m]));
+    const matchCell = r => {
+      const m = requests[r.id];
+      if (!m) return r.status === 'requested'
+        ? `<button onclick="startMatching('${r.id}')" title="Calls StartMatching with a service token, as the ride service will in step 6">Start matching</button>` : '—';
+      const left = Math.round((Date.parse(m.deadlineAt) - state.now) / 1000);
+      const tries = state.offers.filter(o => o.rideId === r.id).length;
+      return `<span class="pill ${STATUS_PILL[m.status] || ''}">${esc(m.status)}</span>
+        <div style="color:var(--muted)">${tries} offer${tries === 1 ? '' : 's'}${m.status === 'matching' ? ` · gives up in ${Math.max(0, left)}s` : ''}</div>`;
+    };
+    panel.innerHTML = err('rides') + err('match_requests') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th></tr>${state.rides.map(r => `<tr>
       <td class="mono">${short(r.id)}<div style="color:var(--muted)">${ago(Date.parse(r.createdAt))}</div></td>
       <td>${esc(nameOf(r.riderId))}</td><td>${r.driverId ? esc(nameOf(r.driverId)) : '—'}</td>
       <td><span class="pill ${STATUS_PILL[r.status] || ''}">${esc(r.status)}</span></td>
-      <td>${r.status === 'requested' ? `<button onclick="startMatching('${r.id}')" title="Calls StartMatching with a service token, as the ride service will in step 6">Start matching</button>` : ''}</td>
+      <td>${matchCell(r)}</td>
     </tr>`).join('')}</table>` : '<div class="empty">No rides yet. Select a rider and click the map.</div>');
   } else {
     panel.innerHTML = err('offers') + (state.offers.length ? `<table><tr><th>Offer</th><th>Ride</th><th>Driver</th><th>Status</th><th>Expires</th></tr>${state.offers.map(o => {

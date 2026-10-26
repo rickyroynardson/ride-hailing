@@ -20,6 +20,9 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	MatchingService_StartMatching_FullMethodName = "/matching.v1.MatchingService/StartMatching"
+	MatchingService_GetOffer_FullMethodName      = "/matching.v1.MatchingService/GetOffer"
+	MatchingService_AcceptOffer_FullMethodName   = "/matching.v1.MatchingService/AcceptOffer"
+	MatchingService_DeclineOffer_FullMethodName  = "/matching.v1.MatchingService/DeclineOffer"
 )
 
 // MatchingServiceClient is the client API for MatchingService service.
@@ -27,6 +30,9 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MatchingServiceClient interface {
 	StartMatching(ctx context.Context, in *StartMatchingRequest, opts ...grpc.CallOption) (*StartMatchingResponse, error)
+	GetOffer(ctx context.Context, in *GetOfferRequest, opts ...grpc.CallOption) (*GetOfferResponse, error)
+	AcceptOffer(ctx context.Context, in *AcceptOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error)
+	DeclineOffer(ctx context.Context, in *DeclineOfferRequest, opts ...grpc.CallOption) (*DeclineOfferResponse, error)
 }
 
 type matchingServiceClient struct {
@@ -47,11 +53,44 @@ func (c *matchingServiceClient) StartMatching(ctx context.Context, in *StartMatc
 	return out, nil
 }
 
+func (c *matchingServiceClient) GetOffer(ctx context.Context, in *GetOfferRequest, opts ...grpc.CallOption) (*GetOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetOfferResponse)
+	err := c.cc.Invoke(ctx, MatchingService_GetOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *matchingServiceClient) AcceptOffer(ctx context.Context, in *AcceptOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AcceptOfferResponse)
+	err := c.cc.Invoke(ctx, MatchingService_AcceptOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *matchingServiceClient) DeclineOffer(ctx context.Context, in *DeclineOfferRequest, opts ...grpc.CallOption) (*DeclineOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeclineOfferResponse)
+	err := c.cc.Invoke(ctx, MatchingService_DeclineOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MatchingServiceServer is the server API for MatchingService service.
 // All implementations must embed UnimplementedMatchingServiceServer
 // for forward compatibility.
 type MatchingServiceServer interface {
 	StartMatching(context.Context, *StartMatchingRequest) (*StartMatchingResponse, error)
+	GetOffer(context.Context, *GetOfferRequest) (*GetOfferResponse, error)
+	AcceptOffer(context.Context, *AcceptOfferRequest) (*AcceptOfferResponse, error)
+	DeclineOffer(context.Context, *DeclineOfferRequest) (*DeclineOfferResponse, error)
 	mustEmbedUnimplementedMatchingServiceServer()
 }
 
@@ -64,6 +103,15 @@ type UnimplementedMatchingServiceServer struct{}
 
 func (UnimplementedMatchingServiceServer) StartMatching(context.Context, *StartMatchingRequest) (*StartMatchingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartMatching not implemented")
+}
+func (UnimplementedMatchingServiceServer) GetOffer(context.Context, *GetOfferRequest) (*GetOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOffer not implemented")
+}
+func (UnimplementedMatchingServiceServer) AcceptOffer(context.Context, *AcceptOfferRequest) (*AcceptOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptOffer not implemented")
+}
+func (UnimplementedMatchingServiceServer) DeclineOffer(context.Context, *DeclineOfferRequest) (*DeclineOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeclineOffer not implemented")
 }
 func (UnimplementedMatchingServiceServer) mustEmbedUnimplementedMatchingServiceServer() {}
 func (UnimplementedMatchingServiceServer) testEmbeddedByValue()                         {}
@@ -104,6 +152,60 @@ func _MatchingService_StartMatching_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MatchingService_GetOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MatchingServiceServer).GetOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MatchingService_GetOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MatchingServiceServer).GetOffer(ctx, req.(*GetOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MatchingService_AcceptOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MatchingServiceServer).AcceptOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MatchingService_AcceptOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MatchingServiceServer).AcceptOffer(ctx, req.(*AcceptOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MatchingService_DeclineOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeclineOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MatchingServiceServer).DeclineOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MatchingService_DeclineOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MatchingServiceServer).DeclineOffer(ctx, req.(*DeclineOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MatchingService_ServiceDesc is the grpc.ServiceDesc for MatchingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +216,18 @@ var MatchingService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StartMatching",
 			Handler:    _MatchingService_StartMatching_Handler,
+		},
+		{
+			MethodName: "GetOffer",
+			Handler:    _MatchingService_GetOffer_Handler,
+		},
+		{
+			MethodName: "AcceptOffer",
+			Handler:    _MatchingService_AcceptOffer_Handler,
+		},
+		{
+			MethodName: "DeclineOffer",
+			Handler:    _MatchingService_DeclineOffer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

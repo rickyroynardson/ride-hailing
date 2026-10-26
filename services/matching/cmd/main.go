@@ -48,6 +48,10 @@ func main() {
 	if err := dbpool.Ping(ctx); err != nil {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
+	if err := database.CheckSchema(ctx, dbpool); err != nil {
+		lg.Fatal("refusing to start", zap.Error(err),
+			zap.String("fix", `goose -dir services/matching/migrations postgres "<postgres_url>" up`))
+	}
 	database.RegisterPoolMetrics(dbpool)
 
 	// Calls to other services carry a fresh service token each time. grpc.NewClient connects lazily, so
@@ -71,6 +75,11 @@ func main() {
 	matchingService := matching.NewService(matchingRepo, locationv1.NewLocationServiceClient(locationConn), ridev1.NewRideServiceClient(rideConn))
 
 	gs := server.NewGRPCServer(lg, auth.NewVerifier(cfg.JWTSecret), matchingService)
+
+	// Every replica runs this; that is safe, since expiry, giving up and offer creation are each guarded by a
+	// single SQL statement or a unique index.
+	tickCtx, stopTick := context.WithCancel(context.Background())
+	go runLoop(tickCtx, lg, "matching tick", time.Second, 30*time.Second, matchingService.Tick)
 
 	r := chi.NewRouter()
 
@@ -106,6 +115,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	<-stop
+	stopTick()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
