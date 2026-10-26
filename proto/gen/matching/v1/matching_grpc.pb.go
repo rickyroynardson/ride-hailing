@@ -7,7 +7,10 @@
 package matchingv1
 
 import (
+	context "context"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -15,10 +18,15 @@ import (
 // Requires gRPC-Go v1.64.0 or later.
 const _ = grpc.SupportPackageIsVersion9
 
+const (
+	MatchingService_StartMatching_FullMethodName = "/matching.v1.MatchingService/StartMatching"
+)
+
 // MatchingServiceClient is the client API for MatchingService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MatchingServiceClient interface {
+	StartMatching(ctx context.Context, in *StartMatchingRequest, opts ...grpc.CallOption) (*StartMatchingResponse, error)
 }
 
 type matchingServiceClient struct {
@@ -29,10 +37,21 @@ func NewMatchingServiceClient(cc grpc.ClientConnInterface) MatchingServiceClient
 	return &matchingServiceClient{cc}
 }
 
+func (c *matchingServiceClient) StartMatching(ctx context.Context, in *StartMatchingRequest, opts ...grpc.CallOption) (*StartMatchingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartMatchingResponse)
+	err := c.cc.Invoke(ctx, MatchingService_StartMatching_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MatchingServiceServer is the server API for MatchingService service.
 // All implementations must embed UnimplementedMatchingServiceServer
 // for forward compatibility.
 type MatchingServiceServer interface {
+	StartMatching(context.Context, *StartMatchingRequest) (*StartMatchingResponse, error)
 	mustEmbedUnimplementedMatchingServiceServer()
 }
 
@@ -43,6 +62,9 @@ type MatchingServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMatchingServiceServer struct{}
 
+func (UnimplementedMatchingServiceServer) StartMatching(context.Context, *StartMatchingRequest) (*StartMatchingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartMatching not implemented")
+}
 func (UnimplementedMatchingServiceServer) mustEmbedUnimplementedMatchingServiceServer() {}
 func (UnimplementedMatchingServiceServer) testEmbeddedByValue()                         {}
 
@@ -64,13 +86,36 @@ func RegisterMatchingServiceServer(s grpc.ServiceRegistrar, srv MatchingServiceS
 	s.RegisterService(&MatchingService_ServiceDesc, srv)
 }
 
+func _MatchingService_StartMatching_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartMatchingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MatchingServiceServer).StartMatching(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MatchingService_StartMatching_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MatchingServiceServer).StartMatching(ctx, req.(*StartMatchingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MatchingService_ServiceDesc is the grpc.ServiceDesc for MatchingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var MatchingService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "matching.v1.MatchingService",
 	HandlerType: (*MatchingServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams:     []grpc.StreamDesc{},
-	Metadata:    "matching/v1/matching.proto",
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StartMatching",
+			Handler:    _MatchingService_StartMatching_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "matching/v1/matching.proto",
 }

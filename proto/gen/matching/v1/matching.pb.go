@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -20,21 +21,208 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Location struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Lat           float64                `protobuf:"fixed64,1,opt,name=lat,proto3" json:"lat,omitempty"`
+	Lng           float64                `protobuf:"fixed64,2,opt,name=lng,proto3" json:"lng,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Location) Reset() {
+	*x = Location{}
+	mi := &file_matching_v1_matching_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Location) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Location) ProtoMessage() {}
+
+func (x *Location) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Location.ProtoReflect.Descriptor instead.
+func (*Location) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Location) GetLat() float64 {
+	if x != nil {
+		return x.Lat
+	}
+	return 0
+}
+
+func (x *Location) GetLng() float64 {
+	if x != nil {
+		return x.Lng
+	}
+	return 0
+}
+
+type StartMatchingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	Pickup        *Location              `protobuf:"bytes,2,opt,name=pickup,proto3" json:"pickup,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartMatchingRequest) Reset() {
+	*x = StartMatchingRequest{}
+	mi := &file_matching_v1_matching_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartMatchingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartMatchingRequest) ProtoMessage() {}
+
+func (x *StartMatchingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartMatchingRequest.ProtoReflect.Descriptor instead.
+func (*StartMatchingRequest) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *StartMatchingRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+func (x *StartMatchingRequest) GetPickup() *Location {
+	if x != nil {
+		return x.Pickup
+	}
+	return nil
+}
+
+// Empty offer_id and driver_id when no driver is available yet.
+type StartMatchingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OfferId       string                 `protobuf:"bytes,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	DriverId      string                 `protobuf:"bytes,2,opt,name=driver_id,json=driverId,proto3" json:"driver_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartMatchingResponse) Reset() {
+	*x = StartMatchingResponse{}
+	mi := &file_matching_v1_matching_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartMatchingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartMatchingResponse) ProtoMessage() {}
+
+func (x *StartMatchingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartMatchingResponse.ProtoReflect.Descriptor instead.
+func (*StartMatchingResponse) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *StartMatchingResponse) GetOfferId() string {
+	if x != nil {
+		return x.OfferId
+	}
+	return ""
+}
+
+func (x *StartMatchingResponse) GetDriverId() string {
+	if x != nil {
+		return x.DriverId
+	}
+	return ""
+}
+
 var File_matching_v1_matching_proto protoreflect.FileDescriptor
 
 const file_matching_v1_matching_proto_rawDesc = "" +
 	"\n" +
-	"\x1amatching/v1/matching.proto\x12\vmatching.v12\x11\n" +
-	"\x0fMatchingServiceB\xb7\x01\n" +
+	"\x1amatching/v1/matching.proto\x12\vmatching.v1\".\n" +
+	"\bLocation\x12\x10\n" +
+	"\x03lat\x18\x01 \x01(\x01R\x03lat\x12\x10\n" +
+	"\x03lng\x18\x02 \x01(\x01R\x03lng\"^\n" +
+	"\x14StartMatchingRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12-\n" +
+	"\x06pickup\x18\x02 \x01(\v2\x15.matching.v1.LocationR\x06pickup\"O\n" +
+	"\x15StartMatchingResponse\x12\x19\n" +
+	"\boffer_id\x18\x01 \x01(\tR\aofferId\x12\x1b\n" +
+	"\tdriver_id\x18\x02 \x01(\tR\bdriverId2k\n" +
+	"\x0fMatchingService\x12X\n" +
+	"\rStartMatching\x12!.matching.v1.StartMatchingRequest\x1a\".matching.v1.StartMatchingResponse\"\x00B\xb7\x01\n" +
 	"\x0fcom.matching.v1B\rMatchingProtoP\x01ZHgithub.com/rickyroynardson/ride-hailing/proto/gen/matching/v1;matchingv1\xa2\x02\x03MXX\xaa\x02\vMatching.V1\xca\x02\vMatching\\V1\xe2\x02\x17Matching\\V1\\GPBMetadata\xea\x02\fMatching::V1b\x06proto3"
 
-var file_matching_v1_matching_proto_goTypes = []any{}
+var (
+	file_matching_v1_matching_proto_rawDescOnce sync.Once
+	file_matching_v1_matching_proto_rawDescData []byte
+)
+
+func file_matching_v1_matching_proto_rawDescGZIP() []byte {
+	file_matching_v1_matching_proto_rawDescOnce.Do(func() {
+		file_matching_v1_matching_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_matching_v1_matching_proto_rawDesc), len(file_matching_v1_matching_proto_rawDesc)))
+	})
+	return file_matching_v1_matching_proto_rawDescData
+}
+
+var file_matching_v1_matching_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_matching_v1_matching_proto_goTypes = []any{
+	(*Location)(nil),              // 0: matching.v1.Location
+	(*StartMatchingRequest)(nil),  // 1: matching.v1.StartMatchingRequest
+	(*StartMatchingResponse)(nil), // 2: matching.v1.StartMatchingResponse
+}
 var file_matching_v1_matching_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: matching.v1.StartMatchingRequest.pickup:type_name -> matching.v1.Location
+	1, // 1: matching.v1.MatchingService.StartMatching:input_type -> matching.v1.StartMatchingRequest
+	2, // 2: matching.v1.MatchingService.StartMatching:output_type -> matching.v1.StartMatchingResponse
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_matching_v1_matching_proto_init() }
@@ -48,12 +236,13 @@ func file_matching_v1_matching_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_matching_v1_matching_proto_rawDesc), len(file_matching_v1_matching_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_matching_v1_matching_proto_goTypes,
 		DependencyIndexes: file_matching_v1_matching_proto_depIdxs,
+		MessageInfos:      file_matching_v1_matching_proto_msgTypes,
 	}.Build()
 	File_matching_v1_matching_proto = out.File
 	file_matching_v1_matching_proto_goTypes = nil

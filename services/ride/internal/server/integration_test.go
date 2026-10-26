@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -108,6 +109,42 @@ func TestIntegration(t *testing.T) {
 	if wins.Load() != 1 {
 		t.Fatalf("concurrent create: %d wins, want 1", wins.Load())
 	}
+
+	// FilterAvailableDrivers drops drivers on an accepted or in-progress ride, keeps everyone else in order.
+	const (
+		onAccepted   = "aaaaaaaa-0000-0000-0000-000000000001"
+		onInProgress = "aaaaaaaa-0000-0000-0000-000000000002"
+		finished     = "aaaaaaaa-0000-0000-0000-000000000003"
+		noRide       = "aaaaaaaa-0000-0000-0000-000000000004"
+	)
+	for i, r := range []struct{ driver, status string }{{onAccepted, "accepted"}, {onInProgress, "in_progress"}, {finished, "completed"}} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO rides(rider_id, driver_id, status, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng) VALUES ($1, $2, $3, 0, 0, 1, 1)`,
+			fmt.Sprintf("bbbbbbbb-0000-0000-0000-00000000000%d", i), r.driver, r.status,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	md, err := auth.NewServiceCredentials("matching", testSecret).GetRequestMetadata(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := metadata.AppendToOutgoingContext(ctx, "authorization", md["authorization"])
+
+	filter := &ridev1.FilterAvailableDriversRequest{DriverIds: []string{noRide, onAccepted, finished, "not-a-uuid", onInProgress}}
+	avail, err := client.FilterAvailableDrivers(service, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(avail.GetDriverIds()); got != fmt.Sprint([]string{noRide, finished}) {
+		t.Fatalf("available drivers: got %s", got)
+	}
+
+	_, err = client.FilterAvailableDrivers(rider, filter)
+	wantCode(t, "filter with user token", err, codes.PermissionDenied)
+
+	_, err = client.FilterAvailableDrivers(service, &ridev1.FilterAvailableDriversRequest{DriverIds: make([]string, 101)})
+	wantCode(t, "too many ids", err, codes.InvalidArgument)
 }
 
 func migrate(t *testing.T, url string) {

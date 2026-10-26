@@ -12,12 +12,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
+	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/logger"
+	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/server"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -45,7 +50,27 @@ func main() {
 	}
 	database.RegisterPoolMetrics(dbpool)
 
-	gs := server.NewGRPCServer(lg, auth.NewVerifier(cfg.JWTSecret))
+	// Calls to other services carry a fresh service token each time. grpc.NewClient connects lazily, so
+	// matching starts even if location or ride is not up yet.
+	clientOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(auth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+	}
+	locationConn, err := grpc.NewClient(cfg.LocationAddr, clientOpts...)
+	if err != nil {
+		lg.Fatal("failed to create location client", zap.Error(err))
+	}
+	defer locationConn.Close()
+	rideConn, err := grpc.NewClient(cfg.RideAddr, clientOpts...)
+	if err != nil {
+		lg.Fatal("failed to create ride client", zap.Error(err))
+	}
+	defer rideConn.Close()
+
+	matchingRepo := matching.NewRepository(dbpool)
+	matchingService := matching.NewService(matchingRepo, locationv1.NewLocationServiceClient(locationConn), ridev1.NewRideServiceClient(rideConn))
+
+	gs := server.NewGRPCServer(lg, auth.NewVerifier(cfg.JWTSecret), matchingService)
 
 	r := chi.NewRouter()
 

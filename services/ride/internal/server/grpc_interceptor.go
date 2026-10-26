@@ -78,6 +78,8 @@ func toStatus(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, ride.ErrActiveRide):
 		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, ride.ErrTooManyIDs):
+		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}

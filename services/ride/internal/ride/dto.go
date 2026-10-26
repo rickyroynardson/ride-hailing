@@ -8,6 +8,7 @@ import (
 var (
 	ErrInvalidInput = errors.New("invalid input")
 	ErrActiveRide   = errors.New("rider already has an active ride")
+	ErrTooManyIDs   = errors.New("too many driver ids")
 )
 
 type Location struct {

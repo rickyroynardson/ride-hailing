@@ -14,6 +14,9 @@ type Config struct {
 	ServiceName string `mapstructure:"service_name"`
 	PostgresURL string `mapstructure:"postgres_url"`
 	JWTSecret   string `mapstructure:"jwt_secret"`
+	// LocationAddr and RideAddr are the gRPC addresses matching calls; the defaults are the compose service names.
+	LocationAddr string `mapstructure:"location_addr"`
+	RideAddr     string `mapstructure:"ride_addr"`
 }
 
 func Load() (*Config, error) {
@@ -25,6 +28,8 @@ func Load() (*Config, error) {
 	v.SetDefault("service_name", "matching-service")
 	v.SetDefault("postgres_url", "")
 	v.SetDefault("jwt_secret", "")
+	v.SetDefault("location_addr", "location:50051")
+	v.SetDefault("ride_addr", "ride:50051")
 
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")

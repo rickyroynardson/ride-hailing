@@ -5,15 +5,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 // methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
-var methodAccess = map[string]access{}
+var methodAccess = map[string]access{
+	"/matching.v1.MatchingService/StartMatching": servicesOnly,
+}
 
-func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier, matchingService *matching.MatchingService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
@@ -23,7 +26,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier) *grpc.Server {
 		authInterceptor(verifier, methodAccess),
 	))
 
-	matchingv1.RegisterMatchingServiceServer(gs, NewMatchingServer())
+	matchingv1.RegisterMatchingServiceServer(gs, NewMatchingServer(matchingService))
 	reflection.Register(gs)
 	metrics.InitializeMetrics(gs)
 

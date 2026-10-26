@@ -2,4 +2,22 @@ syntax = "proto3";
 
 package matching.v1;
 
-service MatchingService {}
+service MatchingService {
+  rpc StartMatching(StartMatchingRequest) returns (StartMatchingResponse) {}
+}
+
+message Location {
+  double lat = 1;
+  double lng = 2;
+}
+
+message StartMatchingRequest {
+  string ride_id = 1;
+  Location pickup = 2;
+}
+
+// Empty offer_id and driver_id when no driver is available yet.
+message StartMatchingResponse {
+  string offer_id = 1;
+  string driver_id = 2;
+}

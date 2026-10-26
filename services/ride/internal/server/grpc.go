@@ -12,7 +12,9 @@ import (
 )
 
 // methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
-var methodAccess = map[string]access{}
+var methodAccess = map[string]access{
+	"/ride.v1.RideService/FilterAvailableDrivers": servicesOnly,
+}
 
 func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier, rideService *ride.RideService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())

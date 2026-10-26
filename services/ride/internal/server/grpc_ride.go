@@ -29,6 +29,15 @@ func (s *RideServer) CreateRide(ctx context.Context, req *ridev1.CreateRideReque
 	return &ridev1.CreateRideResponse{RideId: id}, nil
 }
 
+func (s *RideServer) FilterAvailableDrivers(ctx context.Context, req *ridev1.FilterAvailableDriversRequest) (*ridev1.FilterAvailableDriversResponse, error) {
+	ids, err := s.service.FilterAvailableDrivers(ctx, req.GetDriverIds())
+	if err != nil {
+		return nil, err
+	}
+
+	return &ridev1.FilterAvailableDriversResponse{DriverIds: ids}, nil
+}
+
 func toLocation(l *ridev1.Location) *ride.Location {
 	if l == nil {
 		return nil

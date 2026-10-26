@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
@@ -73,6 +74,8 @@ func toStatus(err error) error {
 		return status.Error(codes.Unauthenticated, err.Error())
 	case errors.Is(err, auth.ErrWrongCaller):
 		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.Is(err, matching.ErrInvalidInput):
+		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}

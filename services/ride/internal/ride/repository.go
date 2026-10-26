@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,4 +32,26 @@ func (r *RideRepository) CreateRide(ctx context.Context, in CreateRideInput) (st
 		return "", ErrActiveRide
 	}
 	return id, err
+}
+
+// BusyDrivers returns which of driverIDs are on an accepted or in-progress ride. The partial unique index
+// rides_one_active_per_driver covers exactly these rows, so the lookup uses it.
+func (r *RideRepository) BusyDrivers(ctx context.Context, driverIDs []string) (map[string]bool, error) {
+	rows, err := r.DB.Query(ctx,
+		`SELECT driver_id FROM rides WHERE driver_id = ANY($1::uuid[]) AND status IN ('accepted', 'in_progress')`,
+		driverIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+
+	busy := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		busy[id] = true
+	}
+	return busy, nil
 }

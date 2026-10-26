@@ -4,6 +4,7 @@ package ride.v1;
 
 service RideService {
   rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
+  rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
 }
 
 message Location {
@@ -18,4 +19,12 @@ message CreateRideRequest {
 
 message CreateRideResponse {
   string ride_id = 1;
+}
+
+message FilterAvailableDriversRequest {
+  repeated string driver_ids = 1;
+}
+
+message FilterAvailableDriversResponse {
+  repeated string driver_ids = 1;
 }
