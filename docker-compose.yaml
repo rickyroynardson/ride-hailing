@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./scripts/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -19,7 +19,7 @@ services:
   redis:
     image: redis:8-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,8 +32,8 @@ services:
       context: .
       dockerfile: services/user/Dockerfile
     ports:
-      - "8080:8080"
-      - "50051:50051"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:50051:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
       JWT_SECRET: "dev-secret-change-me"
@@ -47,8 +47,8 @@ services:
       context: .
       dockerfile: services/ride/Dockerfile
     ports:
-      - "8081:8080"
-      - "50052:50051"
+      - "127.0.0.1:8081:8080"
+      - "127.0.0.1:50052:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/rides?sslmode=disable"
       JWT_SECRET: "dev-secret-change-me"
@@ -62,8 +62,8 @@ services:
       context: .
       dockerfile: services/location/Dockerfile
     ports:
-      - "8082:8080"
-      - "50053:50051"
+      - "127.0.0.1:8082:8080"
+      - "127.0.0.1:50053:50051"
     environment:
       REDIS_URL: "redis://redis:6379/0"
       JWT_SECRET: "dev-secret-change-me"
@@ -77,8 +77,8 @@ services:
       context: .
       dockerfile: services/matching/Dockerfile
     ports:
-      - "8083:8080"
-      - "50054:50051"
+      - "127.0.0.1:8083:8080"
+      - "127.0.0.1:50054:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/matching?sslmode=disable"
       JWT_SECRET: "dev-secret-change-me"
@@ -86,10 +86,42 @@ services:
       postgres:
         condition: service_healthy
 
+  # Development-only UI: holds the JWT secret and reads every service's database. Never deploy it.
+  devconsole:
+    container_name: devconsole
+    build:
+      context: .
+      dockerfile: tools/devconsole/Dockerfile
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      USER_ADDR: "user:50051"
+      RIDE_ADDR: "ride:50051"
+      LOCATION_ADDR: "location:50051"
+      MATCHING_ADDR: "matching:50051"
+      USERS_DB_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+      RIDES_DB_URL: "postgres://postgres:postgres@postgres:5432/rides?sslmode=disable"
+      MATCHING_DB_URL: "postgres://postgres:postgres@postgres:5432/matching?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
+      JWT_SECRET: "dev-secret-change-me"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user:
+        condition: service_started
+      ride:
+        condition: service_started
+      location:
+        condition: service_started
+      matching:
+        condition: service_started
+
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
