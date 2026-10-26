@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 service LocationService {
   rpc UpdateDriverLocation(UpdateDriverLocationRequest) returns (UpdateDriverLocationResponse) {}
+  rpc GoOffline(GoOfflineRequest) returns (GoOfflineResponse) {}
 }
 
 message Location {
@@ -20,3 +21,7 @@ message UpdateDriverLocationRequest {
 }
 
 message UpdateDriverLocationResponse {}
+
+message GoOfflineRequest {}
+
+message GoOfflineResponse {}

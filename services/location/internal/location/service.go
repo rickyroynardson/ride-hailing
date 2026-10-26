@@ -24,3 +24,7 @@ func (s *LocationService) UpdateDriverLocation(ctx context.Context, in UpdateLoc
 
 	return s.repository.SetDriverLocation(ctx, in.DriverID, *in.Location, in.RecordedAt)
 }
+
+func (s *LocationService) GoOffline(ctx context.Context, driverID string) error {
+	return s.repository.SetDriverOffline(ctx, driverID, time.Now())
+}

@@ -126,6 +126,41 @@ func TestIntegration(t *testing.T) {
 	if ttl, _ := rdb.PTTL(ctx, "driver:rate:"+driverID).Result(); ttl <= 0 || ttl > time.Second {
 		t.Fatalf("rate-limit mark TTL %v, want within (0, 1s]", ttl)
 	}
+
+	// GoOffline removes the driver from search but keeps a last-seen marker at the offline time.
+	_, err = client.GoOffline(ctx, &locationv1.GoOfflineRequest{})
+	wantCode(t, "go offline without token", err, codes.Unauthenticated)
+	offlineAt := time.Now()
+	for range 2 {
+		if _, err := client.GoOffline(driver, &locationv1.GoOfflineRequest{}); err != nil {
+			t.Fatalf("go offline: %v", err)
+		}
+	}
+	wantOffline := func(name string) {
+		t.Helper()
+		if pos, _ := rdb.GeoPos(ctx, "drivers:geo", driverID).Result(); pos[0] != nil {
+			t.Fatalf("%s: driver still in drivers:geo at %+v", name, pos[0])
+		}
+	}
+	wantOffline("after go offline")
+	if seen, err := rdb.ZScore(ctx, "drivers:last_seen", driverID).Result(); err != nil || int64(seen) < offlineAt.UnixMilli() {
+		t.Fatalf("offline marker: got %v (%v), want >= %d", seen, err, offlineAt.UnixMilli())
+	}
+
+	// An update that was in flight when the driver went offline must not bring them back.
+	update("in flight", reading(there, 10, offlineAt.Add(-500*time.Millisecond)))
+	wantOffline("after in-flight update")
+
+	// A reading newer than both the offline time and the earlier readings (stamped up to now+1s) brings them back.
+	backAt := now.Add(3 * time.Second)
+	update("back online", reading(there, 10, backAt))
+	wantAt("back online", there, backAt)
+
+	// Non-drivers may call it; it removes nothing of anyone else's.
+	if _, err := client.GoOffline(withToken(t, ctx, "44444444-4444-4444-4444-444444444444", false), &locationv1.GoOfflineRequest{}); err != nil {
+		t.Fatalf("rider go offline: %v", err)
+	}
+	wantAt("after rider go offline", there, backAt)
 }
 
 func startServer(t *testing.T, rdb *redis.Client) locationv1.LocationServiceClient {

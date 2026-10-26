@@ -39,6 +39,16 @@ func (s *LocationServer) UpdateDriverLocation(ctx context.Context, req *location
 	return &locationv1.UpdateDriverLocationResponse{}, nil
 }
 
+// GoOffline needs no driver claim: a driver whose approval was just revoked must still be able to leave, and for
+// anyone else it is a no-op.
+func (s *LocationServer) GoOffline(ctx context.Context, _ *locationv1.GoOfflineRequest) (*locationv1.GoOfflineResponse, error) {
+	if err := s.service.GoOffline(ctx, callerFromContext(ctx).UserID); err != nil {
+		return nil, err
+	}
+
+	return &locationv1.GoOfflineResponse{}, nil
+}
+
 func toLocation(l *locationv1.Location) *location.Location {
 	if l == nil {
 		return nil

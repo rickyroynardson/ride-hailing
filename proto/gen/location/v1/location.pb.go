@@ -170,6 +170,78 @@ func (*UpdateDriverLocationResponse) Descriptor() ([]byte, []int) {
 	return file_location_v1_location_proto_rawDescGZIP(), []int{2}
 }
 
+type GoOfflineRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GoOfflineRequest) Reset() {
+	*x = GoOfflineRequest{}
+	mi := &file_location_v1_location_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GoOfflineRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GoOfflineRequest) ProtoMessage() {}
+
+func (x *GoOfflineRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_location_v1_location_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GoOfflineRequest.ProtoReflect.Descriptor instead.
+func (*GoOfflineRequest) Descriptor() ([]byte, []int) {
+	return file_location_v1_location_proto_rawDescGZIP(), []int{3}
+}
+
+type GoOfflineResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GoOfflineResponse) Reset() {
+	*x = GoOfflineResponse{}
+	mi := &file_location_v1_location_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GoOfflineResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GoOfflineResponse) ProtoMessage() {}
+
+func (x *GoOfflineResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_location_v1_location_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GoOfflineResponse.ProtoReflect.Descriptor instead.
+func (*GoOfflineResponse) Descriptor() ([]byte, []int) {
+	return file_location_v1_location_proto_rawDescGZIP(), []int{4}
+}
+
 var File_location_v1_location_proto protoreflect.FileDescriptor
 
 const file_location_v1_location_proto_rawDesc = "" +
@@ -183,9 +255,12 @@ const file_location_v1_location_proto_rawDesc = "" +
 	"\x0faccuracy_meters\x18\x02 \x01(\x01R\x0eaccuracyMeters\x12;\n" +
 	"\vrecorded_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"recordedAt\"\x1e\n" +
-	"\x1cUpdateDriverLocationResponse2\x80\x01\n" +
+	"\x1cUpdateDriverLocationResponse\"\x12\n" +
+	"\x10GoOfflineRequest\"\x13\n" +
+	"\x11GoOfflineResponse2\xce\x01\n" +
 	"\x0fLocationService\x12m\n" +
-	"\x14UpdateDriverLocation\x12(.location.v1.UpdateDriverLocationRequest\x1a).location.v1.UpdateDriverLocationResponse\"\x00B\xb7\x01\n" +
+	"\x14UpdateDriverLocation\x12(.location.v1.UpdateDriverLocationRequest\x1a).location.v1.UpdateDriverLocationResponse\"\x00\x12L\n" +
+	"\tGoOffline\x12\x1d.location.v1.GoOfflineRequest\x1a\x1e.location.v1.GoOfflineResponse\"\x00B\xb7\x01\n" +
 	"\x0fcom.location.v1B\rLocationProtoP\x01ZHgithub.com/rickyroynardson/ride-hailing/proto/gen/location/v1;locationv1\xa2\x02\x03LXX\xaa\x02\vLocation.V1\xca\x02\vLocation\\V1\xe2\x02\x17Location\\V1\\GPBMetadata\xea\x02\fLocation::V1b\x06proto3"
 
 var (
@@ -200,20 +275,24 @@ func file_location_v1_location_proto_rawDescGZIP() []byte {
 	return file_location_v1_location_proto_rawDescData
 }
 
-var file_location_v1_location_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_location_v1_location_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_location_v1_location_proto_goTypes = []any{
 	(*Location)(nil),                     // 0: location.v1.Location
 	(*UpdateDriverLocationRequest)(nil),  // 1: location.v1.UpdateDriverLocationRequest
 	(*UpdateDriverLocationResponse)(nil), // 2: location.v1.UpdateDriverLocationResponse
-	(*timestamppb.Timestamp)(nil),        // 3: google.protobuf.Timestamp
+	(*GoOfflineRequest)(nil),             // 3: location.v1.GoOfflineRequest
+	(*GoOfflineResponse)(nil),            // 4: location.v1.GoOfflineResponse
+	(*timestamppb.Timestamp)(nil),        // 5: google.protobuf.Timestamp
 }
 var file_location_v1_location_proto_depIdxs = []int32{
 	0, // 0: location.v1.UpdateDriverLocationRequest.location:type_name -> location.v1.Location
-	3, // 1: location.v1.UpdateDriverLocationRequest.recorded_at:type_name -> google.protobuf.Timestamp
+	5, // 1: location.v1.UpdateDriverLocationRequest.recorded_at:type_name -> google.protobuf.Timestamp
 	1, // 2: location.v1.LocationService.UpdateDriverLocation:input_type -> location.v1.UpdateDriverLocationRequest
-	2, // 3: location.v1.LocationService.UpdateDriverLocation:output_type -> location.v1.UpdateDriverLocationResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
+	3, // 3: location.v1.LocationService.GoOffline:input_type -> location.v1.GoOfflineRequest
+	2, // 4: location.v1.LocationService.UpdateDriverLocation:output_type -> location.v1.UpdateDriverLocationResponse
+	4, // 5: location.v1.LocationService.GoOffline:output_type -> location.v1.GoOfflineResponse
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -230,7 +309,7 @@ func file_location_v1_location_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_location_v1_location_proto_rawDesc), len(file_location_v1_location_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

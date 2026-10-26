@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	LocationService_UpdateDriverLocation_FullMethodName = "/location.v1.LocationService/UpdateDriverLocation"
+	LocationService_GoOffline_FullMethodName            = "/location.v1.LocationService/GoOffline"
 )
 
 // LocationServiceClient is the client API for LocationService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type LocationServiceClient interface {
 	UpdateDriverLocation(ctx context.Context, in *UpdateDriverLocationRequest, opts ...grpc.CallOption) (*UpdateDriverLocationResponse, error)
+	GoOffline(ctx context.Context, in *GoOfflineRequest, opts ...grpc.CallOption) (*GoOfflineResponse, error)
 }
 
 type locationServiceClient struct {
@@ -47,11 +49,22 @@ func (c *locationServiceClient) UpdateDriverLocation(ctx context.Context, in *Up
 	return out, nil
 }
 
+func (c *locationServiceClient) GoOffline(ctx context.Context, in *GoOfflineRequest, opts ...grpc.CallOption) (*GoOfflineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GoOfflineResponse)
+	err := c.cc.Invoke(ctx, LocationService_GoOffline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocationServiceServer is the server API for LocationService service.
 // All implementations must embed UnimplementedLocationServiceServer
 // for forward compatibility.
 type LocationServiceServer interface {
 	UpdateDriverLocation(context.Context, *UpdateDriverLocationRequest) (*UpdateDriverLocationResponse, error)
+	GoOffline(context.Context, *GoOfflineRequest) (*GoOfflineResponse, error)
 	mustEmbedUnimplementedLocationServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedLocationServiceServer struct{}
 
 func (UnimplementedLocationServiceServer) UpdateDriverLocation(context.Context, *UpdateDriverLocationRequest) (*UpdateDriverLocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateDriverLocation not implemented")
+}
+func (UnimplementedLocationServiceServer) GoOffline(context.Context, *GoOfflineRequest) (*GoOfflineResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GoOffline not implemented")
 }
 func (UnimplementedLocationServiceServer) mustEmbedUnimplementedLocationServiceServer() {}
 func (UnimplementedLocationServiceServer) testEmbeddedByValue()                         {}
@@ -104,6 +120,24 @@ func _LocationService_UpdateDriverLocation_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocationService_GoOffline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GoOfflineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocationServiceServer).GoOffline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocationService_GoOffline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocationServiceServer).GoOffline(ctx, req.(*GoOfflineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocationService_ServiceDesc is the grpc.ServiceDesc for LocationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var LocationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateDriverLocation",
 			Handler:    _LocationService_UpdateDriverLocation_Handler,
+		},
+		{
+			MethodName: "GoOffline",
+			Handler:    _LocationService_GoOffline_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

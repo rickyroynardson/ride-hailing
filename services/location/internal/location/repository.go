@@ -11,7 +11,8 @@ const (
 	// geoKey holds each online driver's position.
 	geoKey = "drivers:geo"
 	// lastSeenKey scores each driver by the unix milliseconds of their latest reading, so stale drivers can be
-	// skipped and pruned, and out-of-order readings ignored.
+	// skipped and pruned, and out-of-order readings ignored. A driver who went offline keeps an entry here (but
+	// not in geoKey) holding the offline time, so readings taken before it are ignored too.
 	lastSeenKey = "drivers:last_seen"
 )
 
@@ -80,4 +81,17 @@ func (r *LocationRepository) SetDriverLocation(ctx context.Context, driverID str
 		return ErrRateLimited
 	}
 	return nil
+}
+
+// SetDriverOffline removes the driver from geoKey and records the offline time in lastSeenKey, so an update that
+// was in flight when they went offline is ignored as older instead of putting them back online.
+// ZADD GT keeps the stored time if it is already later, e.g. a reading from a phone whose clock runs fast.
+// Two independent commands, so MULTI is enough; see setLocation for when a script is needed instead.
+func (r *LocationRepository) SetDriverOffline(ctx context.Context, driverID string, at time.Time) error {
+	_, err := r.RDB.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.ZRem(ctx, geoKey, driverID)
+		p.ZAddGT(ctx, lastSeenKey, redis.Z{Score: float64(at.UnixMilli()), Member: driverID})
+		return nil
+	})
+	return err
 }
