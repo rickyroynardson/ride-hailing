@@ -16,6 +16,16 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   user:
     container_name: user-service
     build:
@@ -46,6 +56,21 @@ services:
       postgres:
         condition: service_healthy
 
+  location:
+    container_name: location-service
+    build:
+      context: .
+      dockerfile: services/location/Dockerfile
+    ports:
+      - "8082:8080"
+      - "50053:50051"
+    environment:
+      REDIS_URL: "redis://redis:6379/0"
+      JWT_SECRET: "dev-secret-change-me"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -55,6 +80,7 @@ services:
     depends_on:
       - user
       - ride
+      - location
 
 volumes:
   postgres_data:

@@ -1,0 +1,6 @@
+app_env: "development"
+service_name: "location-service"
+redis_url: "redis://localhost:6379/0"
+jwt_secret: "dev-secret-change-me"
+http_port: "8082"
+grpc_port: "50053"

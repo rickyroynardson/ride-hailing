@@ -8,3 +8,6 @@ scrape_configs:
   - job_name: ride-service
     static_configs:
       - targets: ["ride:8080"]
+  - job_name: location-service
+    static_configs:
+      - targets: ["location:8080"]
