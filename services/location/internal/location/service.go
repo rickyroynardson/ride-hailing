@@ -3,6 +3,9 @@ package location
 import (
 	"context"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 type LocationService struct {
@@ -13,18 +16,43 @@ func NewService(repo *LocationRepository) *LocationService {
 	return &LocationService{repository: repo}
 }
 
-func (s *LocationService) UpdateDriverLocation(ctx context.Context, in UpdateLocationInput) error {
+// updatesTotal counts accepted readings by outcome, so a rise in ignored ones (bad GPS, broken app clocks) is
+// visible. Rejected and rate-limited calls show up in the gRPC metrics by status code instead.
+var updatesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "location_updates_total",
+	Help: "Accepted driver location readings, by outcome.",
+}, []string{"outcome"})
+
+func (s *LocationService) UpdateDriverLocation(ctx context.Context, in UpdateLocationInput) (Outcome, error) {
 	now := time.Now()
 	if err := in.Validate(now); err != nil {
-		return err
-	}
-	if !in.Usable(now) {
-		return nil
+		return "", err
 	}
 
-	return s.repository.SetDriverLocation(ctx, in.DriverID, *in.Location, in.RecordedAt)
+	outcome := in.skipReason(now)
+	if outcome == "" {
+		stored, err := s.repository.SetDriverLocation(ctx, in.DriverID, *in.Location, in.RecordedAt)
+		if err != nil {
+			return "", err
+		}
+		outcome = OutcomeIgnoredOutOfOrder
+		if stored {
+			outcome = OutcomeStored
+		}
+	}
+
+	updatesTotal.WithLabelValues(string(outcome)).Inc()
+	return outcome, nil
 }
 
 func (s *LocationService) GoOffline(ctx context.Context, driverID string) error {
 	return s.repository.SetDriverOffline(ctx, driverID, time.Now())
+}
+
+func (s *LocationService) ListNearbyDrivers(ctx context.Context, in ListNearbyInput) ([]NearbyDriver, error) {
+	if err := in.Validate(); err != nil {
+		return nil, err
+	}
+
+	return s.repository.FindNearby(ctx, *in.Location, in.RadiusMeters, in.Limit, time.Now().Add(-staleAfter))
 }

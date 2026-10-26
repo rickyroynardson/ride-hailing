@@ -22,6 +22,12 @@ const (
 	staleAfter = 30 * time.Second
 	// maxClockSkew tolerates device clocks running slightly ahead.
 	maxClockSkew = time.Minute
+
+	// Nearby search defaults and caps; the caps keep one request from scanning a whole city.
+	defaultRadiusMeters = 3000
+	maxRadiusMeters     = 10000
+	defaultNearbyLimit  = 10
+	maxNearbyLimit      = 50
 )
 
 type Location struct {
@@ -58,8 +64,62 @@ func (in UpdateLocationInput) Validate(now time.Time) error {
 	return nil
 }
 
-// Usable reports whether a valid reading is good enough to store. Unusable readings are dropped silently:
-// the device did nothing wrong, and its next reading will replace this one.
-func (in UpdateLocationInput) Usable(now time.Time) bool {
-	return in.AccuracyMeters <= maxAccuracyMeters && now.Sub(in.RecordedAt) <= staleAfter
+// Outcome is what happened to a valid reading. Ignored readings are not errors: the device did nothing wrong,
+// and its next reading may be stored.
+type Outcome string
+
+const (
+	OutcomeStored            Outcome = "stored"
+	OutcomeIgnoredInaccurate Outcome = "ignored_inaccurate"
+	OutcomeIgnoredTooOld     Outcome = "ignored_too_old"
+	OutcomeIgnoredOutOfOrder Outcome = "ignored_out_of_order"
+)
+
+// skipReason reports why a valid reading should not be stored, or "" if it should be.
+func (in UpdateLocationInput) skipReason(now time.Time) Outcome {
+	switch {
+	case in.AccuracyMeters > maxAccuracyMeters:
+		return OutcomeIgnoredInaccurate
+	case now.Sub(in.RecordedAt) > staleAfter:
+		return OutcomeIgnoredTooOld
+	default:
+		return ""
+	}
+}
+
+type ListNearbyInput struct {
+	// Pointer because proto3 reports an unset location as nil, while 0,0 is a real coordinate.
+	Location     *Location
+	RadiusMeters float64
+	Limit        int
+}
+
+// Validate fills defaults for unset (zero) radius and limit, then rejects anything out of range.
+func (in *ListNearbyInput) Validate() error {
+	l := in.Location
+	if l == nil {
+		return fmt.Errorf("%w: location is required", ErrInvalidInput)
+	}
+	if !(l.Lat >= -maxLat && l.Lat <= maxLat && l.Lng >= -180 && l.Lng <= 180) {
+		return fmt.Errorf("%w: lat must be within ±%v and lng within ±180", ErrInvalidInput, maxLat)
+	}
+	if in.RadiusMeters == 0 {
+		in.RadiusMeters = defaultRadiusMeters
+	}
+	if !(in.RadiusMeters > 0 && in.RadiusMeters <= maxRadiusMeters) {
+		return fmt.Errorf("%w: radius_meters must be within (0, %d]", ErrInvalidInput, maxRadiusMeters)
+	}
+	if in.Limit == 0 {
+		in.Limit = defaultNearbyLimit
+	}
+	if in.Limit < 1 || in.Limit > maxNearbyLimit {
+		return fmt.Errorf("%w: limit must be within [1, %d]", ErrInvalidInput, maxNearbyLimit)
+	}
+	return nil
+}
+
+type NearbyDriver struct {
+	DriverID       string
+	Location       Location
+	DistanceMeters float64
 }

@@ -22,6 +22,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type UpdateOutcome int32
+
+const (
+	UpdateOutcome_UPDATE_OUTCOME_UNSPECIFIED          UpdateOutcome = 0
+	UpdateOutcome_UPDATE_OUTCOME_STORED               UpdateOutcome = 1
+	UpdateOutcome_UPDATE_OUTCOME_IGNORED_INACCURATE   UpdateOutcome = 2
+	UpdateOutcome_UPDATE_OUTCOME_IGNORED_TOO_OLD      UpdateOutcome = 3
+	UpdateOutcome_UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER UpdateOutcome = 4
+)
+
+// Enum value maps for UpdateOutcome.
+var (
+	UpdateOutcome_name = map[int32]string{
+		0: "UPDATE_OUTCOME_UNSPECIFIED",
+		1: "UPDATE_OUTCOME_STORED",
+		2: "UPDATE_OUTCOME_IGNORED_INACCURATE",
+		3: "UPDATE_OUTCOME_IGNORED_TOO_OLD",
+		4: "UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER",
+	}
+	UpdateOutcome_value = map[string]int32{
+		"UPDATE_OUTCOME_UNSPECIFIED":          0,
+		"UPDATE_OUTCOME_STORED":               1,
+		"UPDATE_OUTCOME_IGNORED_INACCURATE":   2,
+		"UPDATE_OUTCOME_IGNORED_TOO_OLD":      3,
+		"UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER": 4,
+	}
+)
+
+func (x UpdateOutcome) Enum() *UpdateOutcome {
+	p := new(UpdateOutcome)
+	*p = x
+	return p
+}
+
+func (x UpdateOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UpdateOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_location_v1_location_proto_enumTypes[0].Descriptor()
+}
+
+func (UpdateOutcome) Type() protoreflect.EnumType {
+	return &file_location_v1_location_proto_enumTypes[0]
+}
+
+func (x UpdateOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UpdateOutcome.Descriptor instead.
+func (UpdateOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_location_v1_location_proto_rawDescGZIP(), []int{0}
+}
+
 type Location struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Lat           float64                `protobuf:"fixed64,1,opt,name=lat,proto3" json:"lat,omitempty"`
@@ -136,6 +191,7 @@ func (x *UpdateDriverLocationRequest) GetRecordedAt() *timestamppb.Timestamp {
 
 type UpdateDriverLocationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Outcome       UpdateOutcome          `protobuf:"varint,1,opt,name=outcome,proto3,enum=location.v1.UpdateOutcome" json:"outcome,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -168,6 +224,13 @@ func (x *UpdateDriverLocationResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateDriverLocationResponse.ProtoReflect.Descriptor instead.
 func (*UpdateDriverLocationResponse) Descriptor() ([]byte, []int) {
 	return file_location_v1_location_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *UpdateDriverLocationResponse) GetOutcome() UpdateOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return UpdateOutcome_UPDATE_OUTCOME_UNSPECIFIED
 }
 
 type GoOfflineRequest struct {
@@ -242,6 +305,170 @@ func (*GoOfflineResponse) Descriptor() ([]byte, []int) {
 	return file_location_v1_location_proto_rawDescGZIP(), []int{4}
 }
 
+type NearbyDriver struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	DriverId       string                 `protobuf:"bytes,1,opt,name=driver_id,json=driverId,proto3" json:"driver_id,omitempty"`
+	Location       *Location              `protobuf:"bytes,2,opt,name=location,proto3" json:"location,omitempty"`
+	DistanceMeters float64                `protobuf:"fixed64,3,opt,name=distance_meters,json=distanceMeters,proto3" json:"distance_meters,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *NearbyDriver) Reset() {
+	*x = NearbyDriver{}
+	mi := &file_location_v1_location_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NearbyDriver) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NearbyDriver) ProtoMessage() {}
+
+func (x *NearbyDriver) ProtoReflect() protoreflect.Message {
+	mi := &file_location_v1_location_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NearbyDriver.ProtoReflect.Descriptor instead.
+func (*NearbyDriver) Descriptor() ([]byte, []int) {
+	return file_location_v1_location_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *NearbyDriver) GetDriverId() string {
+	if x != nil {
+		return x.DriverId
+	}
+	return ""
+}
+
+func (x *NearbyDriver) GetLocation() *Location {
+	if x != nil {
+		return x.Location
+	}
+	return nil
+}
+
+func (x *NearbyDriver) GetDistanceMeters() float64 {
+	if x != nil {
+		return x.DistanceMeters
+	}
+	return 0
+}
+
+type ListNearbyDriversRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Location      *Location              `protobuf:"bytes,1,opt,name=location,proto3" json:"location,omitempty"`
+	RadiusMeters  float64                `protobuf:"fixed64,2,opt,name=radius_meters,json=radiusMeters,proto3" json:"radius_meters,omitempty"`
+	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNearbyDriversRequest) Reset() {
+	*x = ListNearbyDriversRequest{}
+	mi := &file_location_v1_location_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNearbyDriversRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNearbyDriversRequest) ProtoMessage() {}
+
+func (x *ListNearbyDriversRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_location_v1_location_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNearbyDriversRequest.ProtoReflect.Descriptor instead.
+func (*ListNearbyDriversRequest) Descriptor() ([]byte, []int) {
+	return file_location_v1_location_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ListNearbyDriversRequest) GetLocation() *Location {
+	if x != nil {
+		return x.Location
+	}
+	return nil
+}
+
+func (x *ListNearbyDriversRequest) GetRadiusMeters() float64 {
+	if x != nil {
+		return x.RadiusMeters
+	}
+	return 0
+}
+
+func (x *ListNearbyDriversRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListNearbyDriversResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Drivers       []*NearbyDriver        `protobuf:"bytes,1,rep,name=drivers,proto3" json:"drivers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNearbyDriversResponse) Reset() {
+	*x = ListNearbyDriversResponse{}
+	mi := &file_location_v1_location_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNearbyDriversResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNearbyDriversResponse) ProtoMessage() {}
+
+func (x *ListNearbyDriversResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_location_v1_location_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNearbyDriversResponse.ProtoReflect.Descriptor instead.
+func (*ListNearbyDriversResponse) Descriptor() ([]byte, []int) {
+	return file_location_v1_location_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListNearbyDriversResponse) GetDrivers() []*NearbyDriver {
+	if x != nil {
+		return x.Drivers
+	}
+	return nil
+}
+
 var File_location_v1_location_proto protoreflect.FileDescriptor
 
 const file_location_v1_location_proto_rawDesc = "" +
@@ -254,13 +481,31 @@ const file_location_v1_location_proto_rawDesc = "" +
 	"\blocation\x18\x01 \x01(\v2\x15.location.v1.LocationR\blocation\x12'\n" +
 	"\x0faccuracy_meters\x18\x02 \x01(\x01R\x0eaccuracyMeters\x12;\n" +
 	"\vrecorded_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"recordedAt\"\x1e\n" +
-	"\x1cUpdateDriverLocationResponse\"\x12\n" +
+	"recordedAt\"T\n" +
+	"\x1cUpdateDriverLocationResponse\x124\n" +
+	"\aoutcome\x18\x01 \x01(\x0e2\x1a.location.v1.UpdateOutcomeR\aoutcome\"\x12\n" +
 	"\x10GoOfflineRequest\"\x13\n" +
-	"\x11GoOfflineResponse2\xce\x01\n" +
+	"\x11GoOfflineResponse\"\x87\x01\n" +
+	"\fNearbyDriver\x12\x1b\n" +
+	"\tdriver_id\x18\x01 \x01(\tR\bdriverId\x121\n" +
+	"\blocation\x18\x02 \x01(\v2\x15.location.v1.LocationR\blocation\x12'\n" +
+	"\x0fdistance_meters\x18\x03 \x01(\x01R\x0edistanceMeters\"\x88\x01\n" +
+	"\x18ListNearbyDriversRequest\x121\n" +
+	"\blocation\x18\x01 \x01(\v2\x15.location.v1.LocationR\blocation\x12#\n" +
+	"\rradius_meters\x18\x02 \x01(\x01R\fradiusMeters\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"P\n" +
+	"\x19ListNearbyDriversResponse\x123\n" +
+	"\adrivers\x18\x01 \x03(\v2\x19.location.v1.NearbyDriverR\adrivers*\xbe\x01\n" +
+	"\rUpdateOutcome\x12\x1e\n" +
+	"\x1aUPDATE_OUTCOME_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15UPDATE_OUTCOME_STORED\x10\x01\x12%\n" +
+	"!UPDATE_OUTCOME_IGNORED_INACCURATE\x10\x02\x12\"\n" +
+	"\x1eUPDATE_OUTCOME_IGNORED_TOO_OLD\x10\x03\x12'\n" +
+	"#UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER\x10\x042\xb4\x02\n" +
 	"\x0fLocationService\x12m\n" +
 	"\x14UpdateDriverLocation\x12(.location.v1.UpdateDriverLocationRequest\x1a).location.v1.UpdateDriverLocationResponse\"\x00\x12L\n" +
-	"\tGoOffline\x12\x1d.location.v1.GoOfflineRequest\x1a\x1e.location.v1.GoOfflineResponse\"\x00B\xb7\x01\n" +
+	"\tGoOffline\x12\x1d.location.v1.GoOfflineRequest\x1a\x1e.location.v1.GoOfflineResponse\"\x00\x12d\n" +
+	"\x11ListNearbyDrivers\x12%.location.v1.ListNearbyDriversRequest\x1a&.location.v1.ListNearbyDriversResponse\"\x00B\xb7\x01\n" +
 	"\x0fcom.location.v1B\rLocationProtoP\x01ZHgithub.com/rickyroynardson/ride-hailing/proto/gen/location/v1;locationv1\xa2\x02\x03LXX\xaa\x02\vLocation.V1\xca\x02\vLocation\\V1\xe2\x02\x17Location\\V1\\GPBMetadata\xea\x02\fLocation::V1b\x06proto3"
 
 var (
@@ -275,27 +520,38 @@ func file_location_v1_location_proto_rawDescGZIP() []byte {
 	return file_location_v1_location_proto_rawDescData
 }
 
-var file_location_v1_location_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_location_v1_location_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_location_v1_location_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_location_v1_location_proto_goTypes = []any{
-	(*Location)(nil),                     // 0: location.v1.Location
-	(*UpdateDriverLocationRequest)(nil),  // 1: location.v1.UpdateDriverLocationRequest
-	(*UpdateDriverLocationResponse)(nil), // 2: location.v1.UpdateDriverLocationResponse
-	(*GoOfflineRequest)(nil),             // 3: location.v1.GoOfflineRequest
-	(*GoOfflineResponse)(nil),            // 4: location.v1.GoOfflineResponse
-	(*timestamppb.Timestamp)(nil),        // 5: google.protobuf.Timestamp
+	(UpdateOutcome)(0),                   // 0: location.v1.UpdateOutcome
+	(*Location)(nil),                     // 1: location.v1.Location
+	(*UpdateDriverLocationRequest)(nil),  // 2: location.v1.UpdateDriverLocationRequest
+	(*UpdateDriverLocationResponse)(nil), // 3: location.v1.UpdateDriverLocationResponse
+	(*GoOfflineRequest)(nil),             // 4: location.v1.GoOfflineRequest
+	(*GoOfflineResponse)(nil),            // 5: location.v1.GoOfflineResponse
+	(*NearbyDriver)(nil),                 // 6: location.v1.NearbyDriver
+	(*ListNearbyDriversRequest)(nil),     // 7: location.v1.ListNearbyDriversRequest
+	(*ListNearbyDriversResponse)(nil),    // 8: location.v1.ListNearbyDriversResponse
+	(*timestamppb.Timestamp)(nil),        // 9: google.protobuf.Timestamp
 }
 var file_location_v1_location_proto_depIdxs = []int32{
-	0, // 0: location.v1.UpdateDriverLocationRequest.location:type_name -> location.v1.Location
-	5, // 1: location.v1.UpdateDriverLocationRequest.recorded_at:type_name -> google.protobuf.Timestamp
-	1, // 2: location.v1.LocationService.UpdateDriverLocation:input_type -> location.v1.UpdateDriverLocationRequest
-	3, // 3: location.v1.LocationService.GoOffline:input_type -> location.v1.GoOfflineRequest
-	2, // 4: location.v1.LocationService.UpdateDriverLocation:output_type -> location.v1.UpdateDriverLocationResponse
-	4, // 5: location.v1.LocationService.GoOffline:output_type -> location.v1.GoOfflineResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 0: location.v1.UpdateDriverLocationRequest.location:type_name -> location.v1.Location
+	9, // 1: location.v1.UpdateDriverLocationRequest.recorded_at:type_name -> google.protobuf.Timestamp
+	0, // 2: location.v1.UpdateDriverLocationResponse.outcome:type_name -> location.v1.UpdateOutcome
+	1, // 3: location.v1.NearbyDriver.location:type_name -> location.v1.Location
+	1, // 4: location.v1.ListNearbyDriversRequest.location:type_name -> location.v1.Location
+	6, // 5: location.v1.ListNearbyDriversResponse.drivers:type_name -> location.v1.NearbyDriver
+	2, // 6: location.v1.LocationService.UpdateDriverLocation:input_type -> location.v1.UpdateDriverLocationRequest
+	4, // 7: location.v1.LocationService.GoOffline:input_type -> location.v1.GoOfflineRequest
+	7, // 8: location.v1.LocationService.ListNearbyDrivers:input_type -> location.v1.ListNearbyDriversRequest
+	3, // 9: location.v1.LocationService.UpdateDriverLocation:output_type -> location.v1.UpdateDriverLocationResponse
+	5, // 10: location.v1.LocationService.GoOffline:output_type -> location.v1.GoOfflineResponse
+	8, // 11: location.v1.LocationService.ListNearbyDrivers:output_type -> location.v1.ListNearbyDriversResponse
+	9, // [9:12] is the sub-list for method output_type
+	6, // [6:9] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_location_v1_location_proto_init() }
@@ -308,13 +564,14 @@ func file_location_v1_location_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_location_v1_location_proto_rawDesc), len(file_location_v1_location_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   5,
+			NumEnums:      1,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_location_v1_location_proto_goTypes,
 		DependencyIndexes: file_location_v1_location_proto_depIdxs,
+		EnumInfos:         file_location_v1_location_proto_enumTypes,
 		MessageInfos:      file_location_v1_location_proto_msgTypes,
 	}.Build()
 	File_location_v1_location_proto = out.File

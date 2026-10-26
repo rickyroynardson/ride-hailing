@@ -32,11 +32,19 @@ func (s *LocationServer) UpdateDriverLocation(ctx context.Context, req *location
 		in.RecordedAt = req.GetRecordedAt().AsTime()
 	}
 
-	if err := s.service.UpdateDriverLocation(ctx, in); err != nil {
+	outcome, err := s.service.UpdateDriverLocation(ctx, in)
+	if err != nil {
 		return nil, err
 	}
 
-	return &locationv1.UpdateDriverLocationResponse{}, nil
+	return &locationv1.UpdateDriverLocationResponse{Outcome: toOutcomeProto[outcome]}, nil
+}
+
+var toOutcomeProto = map[location.Outcome]locationv1.UpdateOutcome{
+	location.OutcomeStored:            locationv1.UpdateOutcome_UPDATE_OUTCOME_STORED,
+	location.OutcomeIgnoredInaccurate: locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_INACCURATE,
+	location.OutcomeIgnoredTooOld:     locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_TOO_OLD,
+	location.OutcomeIgnoredOutOfOrder: locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER,
 }
 
 // GoOffline needs no driver claim: a driver whose approval was just revoked must still be able to leave, and for
@@ -54,4 +62,27 @@ func toLocation(l *locationv1.Location) *location.Location {
 		return nil
 	}
 	return &location.Location{Lat: l.GetLat(), Lng: l.GetLng()}
+}
+
+// ListNearbyDrivers is open to any authenticated caller: the ride service calls it for matching with the rider's
+// token, and rider apps can show nearby cars.
+func (s *LocationServer) ListNearbyDrivers(ctx context.Context, req *locationv1.ListNearbyDriversRequest) (*locationv1.ListNearbyDriversResponse, error) {
+	drivers, err := s.service.ListNearbyDrivers(ctx, location.ListNearbyInput{
+		Location:     toLocation(req.GetLocation()),
+		RadiusMeters: req.GetRadiusMeters(),
+		Limit:        int(req.GetLimit()),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	res := &locationv1.ListNearbyDriversResponse{Drivers: make([]*locationv1.NearbyDriver, len(drivers))}
+	for i, d := range drivers {
+		res.Drivers[i] = &locationv1.NearbyDriver{
+			DriverId:       d.DriverID,
+			Location:       &locationv1.Location{Lat: d.Location.Lat, Lng: d.Location.Lng},
+			DistanceMeters: d.DistanceMeters,
+		}
+	}
+	return res, nil
 }

@@ -24,18 +24,18 @@ func TestUpdateLocationInput(t *testing.T) {
 		"small clock skew": with(func(in *UpdateLocationInput) { in.RecordedAt = now.Add(30 * time.Second) }),
 	}
 	for name, in := range usable {
-		if err := in.Validate(now); err != nil || !in.Usable(now) {
-			t.Fatalf("%s: err %v, usable %v", name, err, in.Usable(now))
+		if err := in.Validate(now); err != nil || in.skipReason(now) != "" {
+			t.Fatalf("%s: err %v, skip %q", name, err, in.skipReason(now))
 		}
 	}
 
-	unusable := map[string]UpdateLocationInput{
-		"inaccurate": with(func(in *UpdateLocationInput) { in.AccuracyMeters = 51 }),
-		"too old":    with(func(in *UpdateLocationInput) { in.RecordedAt = now.Add(-staleAfter - time.Second) }),
+	skipped := map[Outcome]UpdateLocationInput{
+		OutcomeIgnoredInaccurate: with(func(in *UpdateLocationInput) { in.AccuracyMeters = 51 }),
+		OutcomeIgnoredTooOld:     with(func(in *UpdateLocationInput) { in.RecordedAt = now.Add(-staleAfter - time.Second) }),
 	}
-	for name, in := range unusable {
-		if err := in.Validate(now); err != nil || in.Usable(now) {
-			t.Fatalf("%s: err %v, usable %v", name, err, in.Usable(now))
+	for want, in := range skipped {
+		if err := in.Validate(now); err != nil || in.skipReason(now) != want {
+			t.Fatalf("%s: err %v, skip %q", want, err, in.skipReason(now))
 		}
 	}
 
@@ -52,6 +52,30 @@ func TestUpdateLocationInput(t *testing.T) {
 	}
 	for name, in := range invalid {
 		if err := in.Validate(now); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("%s: expected ErrInvalidInput, got %v", name, err)
+		}
+	}
+}
+
+func TestListNearbyInputValidate(t *testing.T) {
+	in := ListNearbyInput{Location: &Location{Lat: -6.2, Lng: 106.8}}
+	if err := in.Validate(); err != nil || in.RadiusMeters != defaultRadiusMeters || in.Limit != defaultNearbyLimit {
+		t.Fatalf("defaults: got %+v, %v", in, err)
+	}
+
+	here := &Location{Lat: -6.2, Lng: 106.8}
+	invalid := map[string]ListNearbyInput{
+		"no location":     {},
+		"lat range":       {Location: &Location{Lat: 86}},
+		"NaN lng":         {Location: &Location{Lng: math.NaN()}},
+		"negative radius": {Location: here, RadiusMeters: -1},
+		"radius too big":  {Location: here, RadiusMeters: maxRadiusMeters + 1},
+		"NaN radius":      {Location: here, RadiusMeters: math.NaN()},
+		"negative limit":  {Location: here, Limit: -1},
+		"limit too big":   {Location: here, Limit: maxNearbyLimit + 1},
+	}
+	for name, in := range invalid {
+		if err := in.Validate(); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("%s: expected ErrInvalidInput, got %v", name, err)
 		}
 	}

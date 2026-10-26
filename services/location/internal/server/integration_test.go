@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net"
 	"testing"
@@ -62,11 +63,15 @@ func TestIntegration(t *testing.T) {
 		return &locationv1.UpdateDriverLocationRequest{Location: l, AccuracyMeters: accuracy, RecordedAt: timestamppb.New(at)}
 	}
 	// update clears the rate-limit mark first, so steps can run back to back; the limit has its own check below.
-	update := func(name string, req *locationv1.UpdateDriverLocationRequest) {
+	update := func(name string, req *locationv1.UpdateDriverLocationRequest, want locationv1.UpdateOutcome) {
 		t.Helper()
 		rdb.Del(ctx, "driver:rate:"+driverID)
-		if _, err := client.UpdateDriverLocation(driver, req); err != nil {
+		res, err := client.UpdateDriverLocation(driver, req)
+		if err != nil {
 			t.Fatalf("%s: %v", name, err)
+		}
+		if res.GetOutcome() != want {
+			t.Fatalf("%s: outcome %v, want %v", name, res.GetOutcome(), want)
 		}
 	}
 	wantAt := func(name string, l *locationv1.Location, recordedAt time.Time) {
@@ -102,24 +107,24 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// A good reading is stored with its device timestamp; the next one moves the driver instead of adding a second entry.
-	update("first", reading(here, 10, now.Add(-2*time.Second)))
+	update("first", reading(here, 10, now.Add(-2*time.Second)), locationv1.UpdateOutcome_UPDATE_OUTCOME_STORED)
 	wantAt("first", here, now.Add(-2*time.Second))
-	update("second", reading(there, 10, now))
+	update("second", reading(there, 10, now), locationv1.UpdateOutcome_UPDATE_OUTCOME_STORED)
 	wantAt("second", there, now)
 	if n, _ := rdb.ZCard(ctx, "drivers:geo").Result(); n != 1 {
 		t.Fatalf("drivers:geo has %d members, want 1", n)
 	}
 
 	// Accepted but not stored: each leaves the second reading in place.
-	update("arrived out of order", reading(here, 10, now.Add(-time.Second)))
+	update("arrived out of order", reading(here, 10, now.Add(-time.Second)), locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER)
 	wantAt("arrived out of order", there, now)
-	update("inaccurate", reading(here, 51, now.Add(time.Second)))
+	update("inaccurate", reading(here, 51, now.Add(time.Second)), locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_INACCURATE)
 	wantAt("inaccurate", there, now)
-	update("too old", reading(here, 10, now.Add(-time.Minute)))
+	update("too old", reading(here, 10, now.Add(-time.Minute)), locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_TOO_OLD)
 	wantAt("too old", there, now)
 
 	// A second update within a second is rejected and stores nothing; the limit lifts once the mark expires.
-	update("before limit", reading(here, 10, now.Add(time.Second)))
+	update("before limit", reading(here, 10, now.Add(time.Second)), locationv1.UpdateOutcome_UPDATE_OUTCOME_STORED)
 	_, err = client.UpdateDriverLocation(driver, reading(there, 10, now.Add(2*time.Second)))
 	wantCode(t, "rate limited", err, codes.ResourceExhausted)
 	wantAt("rate limited", here, now.Add(time.Second))
@@ -148,12 +153,12 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// An update that was in flight when the driver went offline must not bring them back.
-	update("in flight", reading(there, 10, offlineAt.Add(-500*time.Millisecond)))
+	update("in flight", reading(there, 10, offlineAt.Add(-500*time.Millisecond)), locationv1.UpdateOutcome_UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER)
 	wantOffline("after in-flight update")
 
 	// A reading newer than both the offline time and the earlier readings (stamped up to now+1s) brings them back.
 	backAt := now.Add(3 * time.Second)
-	update("back online", reading(there, 10, backAt))
+	update("back online", reading(there, 10, backAt), locationv1.UpdateOutcome_UPDATE_OUTCOME_STORED)
 	wantAt("back online", there, backAt)
 
 	// Non-drivers may call it; it removes nothing of anyone else's.
@@ -161,6 +166,84 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("rider go offline: %v", err)
 	}
 	wantAt("after rider go offline", there, backAt)
+
+	// ListNearbyDrivers, around a point far from the drivers above. Drivers are written to Redis directly.
+	center := &locationv1.Location{Lat: 1.30, Lng: 103.85}
+	put := func(id string, metersNorth float64, seen time.Time) {
+		t.Helper()
+		// 1 degree of latitude is about 111,320 m.
+		rdb.GeoAdd(ctx, "drivers:geo", &redis.GeoLocation{Name: id, Latitude: center.GetLat() + metersNorth/111320, Longitude: center.GetLng()})
+		rdb.ZAdd(ctx, "drivers:last_seen", redis.Z{Score: float64(seen.UnixMilli()), Member: id})
+	}
+	fresh, stale := time.Now(), time.Now().Add(-time.Minute)
+	put("near-500", 500, fresh)
+	put("near-1000", 1000, fresh)
+	put("stale-1500", 1500, stale)
+	put("far-20000", 20000, fresh)
+	rdb.GeoAdd(ctx, "drivers:geo", &redis.GeoLocation{Name: "no-last-seen", Latitude: center.GetLat() + 2000.0/111320, Longitude: center.GetLng()})
+
+	rider := withToken(t, ctx, "55555555-5555-5555-5555-555555555555", false)
+	list := func(name string, req *locationv1.ListNearbyDriversRequest) []string {
+		t.Helper()
+		res, err := client.ListNearbyDrivers(rider, req)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		ids := make([]string, len(res.GetDrivers()))
+		for i, d := range res.GetDrivers() {
+			ids[i] = d.GetDriverId()
+		}
+		return ids
+	}
+	wantIDs := func(name string, got []string, want ...string) {
+		t.Helper()
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Fatalf("%s: got %v, want %v", name, got, want)
+		}
+	}
+	_, err = client.ListNearbyDrivers(ctx, &locationv1.ListNearbyDriversRequest{Location: center})
+	wantCode(t, "list without token", err, codes.Unauthenticated)
+	for name, req := range map[string]*locationv1.ListNearbyDriversRequest{
+		"list without location": {},
+		"radius too big":        {Location: center, RadiusMeters: 10001},
+		"limit too big":         {Location: center, Limit: 51},
+	} {
+		_, err = client.ListNearbyDrivers(rider, req)
+		wantCode(t, name, err, codes.InvalidArgument)
+	}
+
+	// Nearest first; stale and out-of-radius drivers excluded.
+	res, err := client.ListNearbyDrivers(rider, &locationv1.ListNearbyDriversRequest{Location: center, RadiusMeters: 3000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := res.GetDrivers(); len(d) != 2 || d[0].GetDriverId() != "near-500" || math.Abs(d[0].GetDistanceMeters()-500) > 5 || d[1].GetDriverId() != "near-1000" {
+		t.Fatalf("nearby: got %v", d)
+	}
+
+	// Stale drivers found by the search were pruned from both keys.
+	for _, id := range []string{"stale-1500", "no-last-seen"} {
+		if pos, _ := rdb.GeoPos(ctx, "drivers:geo", id).Result(); pos[0] != nil {
+			t.Fatalf("%s still in drivers:geo", id)
+		}
+		if _, err := rdb.ZScore(ctx, "drivers:last_seen", id).Result(); err != redis.Nil {
+			t.Fatalf("%s still in drivers:last_seen", id)
+		}
+	}
+
+	wantIDs("limit", list("limit", &locationv1.ListNearbyDriversRequest{Location: center, Limit: 1}), "near-500")
+
+	// The limit applies after the staleness filter: 5 stale drivers nearer than every fresh one must not
+	// fill the first batch of candidates and hide the fresh ones.
+	for i := range 5 {
+		put(fmt.Sprintf("stale-close-%d", i), float64(10+i), stale)
+	}
+	wantIDs("stale drivers closer", list("stale drivers closer", &locationv1.ListNearbyDriversRequest{Location: center, Limit: 2}), "near-500", "near-1000")
+
+	// Fresh drivers are never pruned.
+	if pos, _ := rdb.GeoPos(ctx, "drivers:geo", "near-500").Result(); pos[0] == nil {
+		t.Fatal("fresh driver near-500 was pruned")
+	}
 }
 
 func startServer(t *testing.T, rdb *redis.Client) locationv1.LocationServiceClient {

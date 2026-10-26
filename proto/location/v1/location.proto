@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 service LocationService {
   rpc UpdateDriverLocation(UpdateDriverLocationRequest) returns (UpdateDriverLocationResponse) {}
   rpc GoOffline(GoOfflineRequest) returns (GoOfflineResponse) {}
+  rpc ListNearbyDrivers(ListNearbyDriversRequest) returns (ListNearbyDriversResponse) {}
 }
 
 message Location {
@@ -20,8 +21,34 @@ message UpdateDriverLocationRequest {
   google.protobuf.Timestamp recorded_at = 3;
 }
 
-message UpdateDriverLocationResponse {}
+enum UpdateOutcome {
+  UPDATE_OUTCOME_UNSPECIFIED = 0;
+  UPDATE_OUTCOME_STORED = 1;
+  UPDATE_OUTCOME_IGNORED_INACCURATE = 2;
+  UPDATE_OUTCOME_IGNORED_TOO_OLD = 3;
+  UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER = 4;
+}
+
+message UpdateDriverLocationResponse {
+  UpdateOutcome outcome = 1;
+}
 
 message GoOfflineRequest {}
 
 message GoOfflineResponse {}
+
+message NearbyDriver {
+  string driver_id = 1;
+  Location location = 2;
+  double distance_meters = 3;
+}
+
+message ListNearbyDriversRequest {
+  Location location = 1;
+  double radius_meters = 2;
+  int32 limit = 3;
+}
+
+message ListNearbyDriversResponse {
+  repeated NearbyDriver drivers = 1;
+}

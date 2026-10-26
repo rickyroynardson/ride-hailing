@@ -61,6 +61,26 @@ redis.call('ZADD', KEYS[2], ARGV[4], ARGV[1])
 return 1
 `)
 
+// pruneStale removes drivers from both keys only if they are still stale. A driver can send a fresh reading
+// between our freshness check and this removal, so the check is repeated here, atomically with the removal.
+//
+//	KEYS[1] drivers:geo, KEYS[2] drivers:last_seen
+//	ARGV[1] cutoff in unix ms, ARGV[2..] driver IDs
+var pruneStale = redis.NewScript(`
+local cutoff = tonumber(ARGV[1])
+for i = 2, #ARGV do
+  local seen = redis.call('ZSCORE', KEYS[2], ARGV[i])
+  if not seen or tonumber(seen) < cutoff then
+    redis.call('ZREM', KEYS[1], ARGV[i])
+    redis.call('ZREM', KEYS[2], ARGV[i])
+  end
+end
+return 0
+`)
+
+// maxNearbyCandidates caps how many entries one search reads from Redis while skipping stale drivers.
+const maxNearbyCandidates = 500
+
 type LocationRepository struct {
 	RDB *redis.Client
 }
@@ -69,18 +89,18 @@ func NewRepository(rdb *redis.Client) *LocationRepository {
 	return &LocationRepository{RDB: rdb}
 }
 
-// SetDriverLocation stores a reading unless a newer one is already stored, which is not an error.
-func (r *LocationRepository) SetDriverLocation(ctx context.Context, driverID string, l Location, recordedAt time.Time) error {
+// SetDriverLocation reports whether the reading was stored; false means a newer one already was.
+func (r *LocationRepository) SetDriverLocation(ctx context.Context, driverID string, l Location, recordedAt time.Time) (bool, error) {
 	result, err := setLocation.Run(ctx, r.RDB, []string{geoKey, lastSeenKey, rateKeyPrefix + driverID},
 		driverID, l.Lat, l.Lng, recordedAt.UnixMilli(), minUpdateGap.Milliseconds(),
 	).Int()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if result == -1 {
-		return ErrRateLimited
+		return false, ErrRateLimited
 	}
-	return nil
+	return result == 1, nil
 }
 
 // SetDriverOffline removes the driver from geoKey and records the offline time in lastSeenKey, so an update that
@@ -94,4 +114,68 @@ func (r *LocationRepository) SetDriverOffline(ctx context.Context, driverID stri
 		return nil
 	})
 	return err
+}
+
+// FindNearby returns up to limit drivers seen at or after freshSince, nearest first. The limit is applied after
+// dropping stale drivers: if stale ones fill the first batch of candidates, it searches again with a larger batch,
+// so fresh drivers slightly further away are not missed. Stale drivers it finds are pruned on the way.
+func (r *LocationRepository) FindNearby(ctx context.Context, center Location, radiusMeters float64, limit int, freshSince time.Time) ([]NearbyDriver, error) {
+	cutoff := freshSince.UnixMilli()
+	count := limit * 2
+
+	for {
+		candidates, err := r.RDB.GeoSearchLocation(ctx, geoKey, &redis.GeoSearchLocationQuery{
+			GeoSearchQuery: redis.GeoSearchQuery{
+				Longitude:  center.Lng,
+				Latitude:   center.Lat,
+				Radius:     radiusMeters,
+				RadiusUnit: "m",
+				Sort:       "ASC",
+				Count:      count,
+			},
+			WithCoord: true,
+			WithDist:  true,
+		}).Result()
+		if err != nil || len(candidates) == 0 {
+			return nil, err
+		}
+
+		ids := make([]string, len(candidates))
+		for i, c := range candidates {
+			ids[i] = c.Name
+		}
+		// A driver with no last-seen entry reads as 0, i.e. stale.
+		seen, err := r.RDB.ZMScore(ctx, lastSeenKey, ids...).Result()
+		if err != nil {
+			return nil, err
+		}
+
+		drivers := make([]NearbyDriver, 0, limit)
+		var stale []any
+		for i, c := range candidates {
+			if int64(seen[i]) < cutoff {
+				stale = append(stale, c.Name)
+				continue
+			}
+			if len(drivers) < limit {
+				drivers = append(drivers, NearbyDriver{
+					DriverID:       c.Name,
+					Location:       Location{Lat: c.Latitude, Lng: c.Longitude},
+					DistanceMeters: c.Dist,
+				})
+			}
+		}
+
+		if len(stale) > 0 {
+			if err := pruneStale.Run(ctx, r.RDB, []string{geoKey, lastSeenKey}, append([]any{cutoff}, stale...)...).Err(); err != nil {
+				return nil, err
+			}
+		}
+
+		// Done when enough fresh drivers were found, the radius has no more entries, or the batch hit the cap.
+		if len(drivers) == limit || len(candidates) < count || count >= maxNearbyCandidates {
+			return drivers, nil
+		}
+		count = min(count*4, maxNearbyCandidates)
+	}
 }
