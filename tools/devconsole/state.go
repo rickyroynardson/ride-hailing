@@ -21,6 +21,7 @@ type rideRow struct {
 	RiderID   string    `json:"riderId"`
 	DriverID  string    `json:"driverId"`
 	Status    string    `json:"status"`
+	Reason    string    `json:"cancelReason"`
 	Pickup    latLng    `json:"pickup"`
 	Dropoff   latLng    `json:"dropoff"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -67,11 +68,11 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 		state["drivers"] = drivers
 	}
 
-	rides, err := collect(ctx, c.ridesDB, `SELECT id, rider_id, COALESCE(driver_id::text, ''), status,
+	rides, err := collect(ctx, c.ridesDB, `SELECT id, rider_id, COALESCE(driver_id::text, ''), status, COALESCE(cancel_reason, ''),
 		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at FROM rides ORDER BY created_at DESC LIMIT 50`,
 		func(row pgx.CollectableRow) (rideRow, error) {
 			var x rideRow
-			err := row.Scan(&x.ID, &x.RiderID, &x.DriverID, &x.Status, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.CreatedAt)
+			err := row.Scan(&x.ID, &x.RiderID, &x.DriverID, &x.Status, &x.Reason, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.CreatedAt)
 			return x, err
 		})
 	if err != nil {

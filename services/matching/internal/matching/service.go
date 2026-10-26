@@ -75,6 +75,13 @@ func (s *MatchingService) Tick(ctx context.Context) error {
 	}
 	requestsFinished.WithLabelValues("no_driver").Add(float64(len(gaveUp)))
 
+	// Tell ride about every request that ended without a driver, until it confirms. The request row works as
+	// matching's outbox: ride_notified_at stays empty, and this keeps retrying, until ride has the news.
+	// Its errors are reported but don't stop the rest of the tick: ride being down mustn't stall offering.
+	if err := s.notifyNoDriver(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("notify no driver: %w", err))
+	}
+
 	waiting, err := s.repository.WaitingRequests(ctx, tickBatch)
 	if err != nil {
 		return fmt.Errorf("list waiting requests: %w", err)
@@ -122,6 +129,48 @@ func (s *MatchingService) offerNext(ctx context.Context, in StartInput) (*Offer,
 	// We created no offer, but a concurrent call may have: its pending offer also excluded its driver from our
 	// candidates. Return that offer rather than "no driver available".
 	return s.repository.PendingOffer(ctx, in.RideID)
+}
+
+// CancelMatching stops matching a ride the rider cancelled. Ride delivers it through its outbox, at least once, so
+// it is idempotent and a no-op for rides matching never heard of or already finished.
+func (s *MatchingService) CancelMatching(ctx context.Context, rideID string) error {
+	if !uuidPattern.MatchString(rideID) {
+		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+	}
+	wasMatching, err := s.repository.CancelMatching(ctx, rideID)
+	if err == nil && wasMatching {
+		requestsFinished.WithLabelValues("cancelled").Inc()
+	}
+	return err
+}
+
+// notifyNoDriver asks ride to cancel rides whose request ended no_driver. MarkNoDriver is idempotent, so a request
+// that ride handled but whose confirmation got lost is simply sent again.
+func (s *MatchingService) notifyNoDriver(ctx context.Context) error {
+	rides, err := s.repository.UnnotifiedNoDriver(ctx, tickBatch)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, rideID := range rides {
+		callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+		_, err := s.ride.MarkNoDriver(callCtx, &ridev1.MarkNoDriverRequest{RideId: rideID})
+		cancel()
+		switch status.Code(err) {
+		case codes.OK:
+		case codes.FailedPrecondition:
+			// Ride says the ride has a driver, so it isn't ours to cancel. Retrying won't change that: stop, but
+			// report it, since matching and ride disagree about this ride.
+			errs = append(errs, fmt.Errorf("ride %s refused no_driver: %w", rideID, err))
+		default:
+			errs = append(errs, fmt.Errorf("ride %s: %w", rideID, err))
+			continue
+		}
+		if err := s.repository.MarkRideNotified(ctx, rideID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // GetOffer returns the driver's pending offer, or nil. Driver apps poll it.

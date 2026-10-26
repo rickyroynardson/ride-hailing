@@ -8,6 +8,7 @@ import (
 
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -74,6 +75,30 @@ func (c *console) handleAnswerOffer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, marshal(res))
 }
 
+// handleCancelRide cancels the ride as its rider.
+func (c *console) handleCancelRide(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil || a.Kind != "rider" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a rider"})
+		return
+	}
+	a.mu.Lock()
+	tok, err := c.token(a)
+	a.mu.Unlock()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &ridev1.CancelRideRequest{RideId: r.PathValue("ride")}
+	if _, err := c.call(a.Name, "ride.v1.RideService/CancelRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.ride.CancelRide(ctx, req)
+	}); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleRemoveActor stops a driver's heartbeat, takes them offline, and forgets the session. Their user and
 // rides stay in the databases.
 func (c *console) handleRemoveActor(w http.ResponseWriter, r *http.Request) {
@@ -109,9 +134,9 @@ func (c *console) handleClearCalls(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleReset wipes local dev data so testing starts clean: every ride, offer, match request and driver location,
-// plus the users the console created (their refresh tokens and driver profiles go with them by cascade). Users
-// you registered yourself are kept.
+// handleReset wipes local dev data so testing starts clean: every ride (and ride's outbox), offer, match request
+// and driver location, plus the users the console created (their refresh tokens and driver profiles go with them by
+// cascade). Users you registered yourself are kept.
 func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	actors := c.actors
@@ -136,6 +161,7 @@ func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 		{"offers", exec(ctx, c.matchingDB.Exec, `DELETE FROM offers`)},
 		{"matchRequests", exec(ctx, c.matchingDB.Exec, `DELETE FROM match_requests`)},
 		{"rides", exec(ctx, c.ridesDB.Exec, `DELETE FROM rides`)},
+		{"outbox", exec(ctx, c.ridesDB.Exec, `DELETE FROM outbox`)},
 		{"consoleUsers", exec(ctx, c.usersDB.Exec, `DELETE FROM users WHERE email LIKE 'dev-%@devconsole.local'`)},
 		{"redisKeys", func() (int64, error) {
 			keys := []string{"drivers:geo", "drivers:last_seen"}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,8 +19,10 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
+	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
+	"github.com/rickyroynardson/ride-hailing/services/ride/internal/outbox"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/ride"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/server"
 	"github.com/testcontainers/testcontainers-go"
@@ -193,8 +196,245 @@ func TestIntegration(t *testing.T) {
 	wantCode(t, "assign busy driver", assign(newRide("bbbbbbbb-0000-0000-0000-000000000012"), assignee), codes.AlreadyExists)
 
 	cancelled := newRide("bbbbbbbb-0000-0000-0000-000000000013")
-	pool.Exec(ctx, `UPDATE rides SET status = 'cancelled' WHERE id = $1`, cancelled)
+	pool.Exec(ctx, `UPDATE rides SET status = 'cancelled', cancel_reason = 'rider' WHERE id = $1`, cancelled)
 	wantCode(t, "assign cancelled ride", assign(cancelled, otherDriver), codes.FailedPrecondition)
+
+	// Outbox: CreateRide saves a "start matching" message with the ride, and the relay delivers it.
+	relayMatching := &fakeMatching{}
+	relay := outbox.NewRelay(pool, relayMatching)
+	runRelay := func() error {
+		t.Helper()
+		return relay.Run(ctx)
+	}
+	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE sent_at IS NULL`) // earlier steps' rides are not this step's concern
+	outboxRider := withToken(t, ctx, "dddddddd-0000-0000-0000-000000000001")
+	created, err := client.CreateRide(outboxRider, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outboxRow struct {
+		kind, rideID string
+		attempts     int
+		sent         bool
+		lastError    string
+	}
+	rowFor := func(rideID string) outboxRow {
+		t.Helper()
+		var r outboxRow
+		if err := pool.QueryRow(ctx,
+			`SELECT kind, payload->>'ride_id', attempts, sent_at IS NOT NULL, COALESCE(last_error, '') FROM outbox WHERE payload->>'ride_id' = $1`, rideID,
+		).Scan(&r.kind, &r.rideID, &r.attempts, &r.sent, &r.lastError); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if r := rowFor(created.GetRideId()); r.kind != "start_matching" || r.sent || r.attempts != 0 {
+		t.Fatalf("outbox row after CreateRide: %+v", r)
+	}
+
+	// The ride and its message are saved together: a refused CreateRide leaves no message behind.
+	var before, after int
+	pool.QueryRow(ctx, `SELECT count(*) FROM outbox`).Scan(&before)
+	_, err = client.CreateRide(outboxRider, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	wantCode(t, "second active ride", err, codes.AlreadyExists)
+	pool.QueryRow(ctx, `SELECT count(*) FROM outbox`).Scan(&after)
+	if after != before {
+		t.Fatalf("refused CreateRide left %d outbox rows", after-before)
+	}
+
+	// Matching down: the message stays unsent, with the attempt and error recorded.
+	relayMatching.fail(status.Error(codes.Unavailable, "matching down"))
+	if err := runRelay(); err == nil {
+		t.Fatal("relay with matching down: want an error")
+	}
+	if r := rowFor(created.GetRideId()); r.sent || r.attempts != 1 || !strings.Contains(r.lastError, "matching down") {
+		t.Fatalf("outbox row with matching down: %+v", r)
+	}
+
+	// Matching back: delivered once, with the ride's pickup, and not sent again.
+	relayMatching.fail(nil)
+	if err := runRelay(); err != nil {
+		t.Fatal(err)
+	}
+	if err := runRelay(); err != nil {
+		t.Fatal(err)
+	}
+	if r := rowFor(created.GetRideId()); !r.sent || r.attempts != 2 || r.lastError != "" {
+		t.Fatalf("outbox row after delivery: %+v", r)
+	}
+	got := relayMatching.calls()
+	if len(got) != 1 || got[0].GetRideId() != created.GetRideId() || got[0].GetPickup().GetLat() != pickup.GetLat() {
+		t.Fatalf("StartMatching calls: %v", got)
+	}
+
+	// MarkNoDriver: requested → cancelled (no_driver), idempotent, never touches a ride that has a driver.
+	markNoDriver := func(ride string) error {
+		_, err := client.MarkNoDriver(service, &ridev1.MarkNoDriverRequest{RideId: ride})
+		return err
+	}
+	stateOf := func(ride string) (string, string) {
+		t.Helper()
+		var st, reason string
+		if err := pool.QueryRow(ctx, `SELECT status, COALESCE(cancel_reason, '') FROM rides WHERE id = $1`, ride).Scan(&st, &reason); err != nil {
+			t.Fatal(err)
+		}
+		return st, reason
+	}
+	_, err = client.MarkNoDriver(rider, &ridev1.MarkNoDriverRequest{RideId: created.GetRideId()})
+	wantCode(t, "mark no driver with user token", err, codes.PermissionDenied)
+	for i := range 2 {
+		if err := markNoDriver(created.GetRideId()); err != nil {
+			t.Fatalf("mark no driver attempt %d: %v", i+1, err)
+		}
+	}
+	if st, reason := stateOf(created.GetRideId()); st != "cancelled" || reason != "no_driver" {
+		t.Fatalf("after MarkNoDriver: %s/%s", st, reason)
+	}
+	// The rider can request again: the no-driver ride is no longer active.
+	if _, err := client.CreateRide(outboxRider, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff}); err != nil {
+		t.Fatalf("request after no driver: %v", err)
+	}
+	if err := markNoDriver(cancelled); err != nil {
+		t.Fatalf("mark no driver on rider-cancelled ride: %v", err)
+	}
+	if st, reason := stateOf(cancelled); st != "cancelled" || reason != "rider" {
+		t.Fatalf("rider-cancelled ride changed to %s/%s", st, reason)
+	}
+	wantCode(t, "mark no driver on accepted ride", markNoDriver(assigned), codes.FailedPrecondition)
+	wantCode(t, "mark no driver on unknown ride", markNoDriver("cccccccc-0000-0000-0000-00000000fffe"), codes.FailedPrecondition)
+
+	// The schema refuses a cancelled ride without a reason, and a reason on a ride that isn't cancelled.
+	if _, err := pool.Exec(ctx, `UPDATE rides SET cancel_reason = NULL WHERE id = $1`, cancelled); err == nil {
+		t.Fatal("cancelled ride without a reason was accepted")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE rides SET cancel_reason = 'rider' WHERE id = $1`, assigned); err == nil {
+		t.Fatal("accepted ride with a cancel reason was accepted")
+	}
+
+	// CancelRide: only the rider's own ride, before the trip starts; the cancel reaches matching after the start.
+	cancelRider := "dddddddd-0000-0000-0000-000000000002"
+	cancelCtx := withToken(t, ctx, cancelRider)
+	toCancel, err := client.CreateRide(cancelCtx, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelRide := func(who context.Context, ride string) error {
+		_, err := client.CancelRide(who, &ridev1.CancelRideRequest{RideId: ride})
+		return err
+	}
+	wantCode(t, "cancel someone else's ride", cancelRide(outboxRider, toCancel.GetRideId()), codes.NotFound)
+	wantCode(t, "cancel bad id", cancelRide(cancelCtx, "ride-1"), codes.InvalidArgument)
+	_, err = client.CancelRide(service, &ridev1.CancelRideRequest{RideId: toCancel.GetRideId()})
+	wantCode(t, "cancel with service token", err, codes.PermissionDenied)
+
+	// Matching is down when the ride is created, so its start is still unsent when the rider cancels.
+	relayMatching.fail(status.Error(codes.Unavailable, "matching down"))
+	runRelay()
+	for i := range 2 {
+		if err := cancelRide(cancelCtx, toCancel.GetRideId()); err != nil {
+			t.Fatalf("cancel attempt %d: %v", i+1, err)
+		}
+	}
+	if st, reason := stateOf(toCancel.GetRideId()); st != "cancelled" || reason != "rider" {
+		t.Fatalf("after CancelRide: %s/%s", st, reason)
+	}
+	var cancelMsgs int
+	pool.QueryRow(ctx, `SELECT count(*) FROM outbox WHERE kind = 'cancel_matching' AND payload->>'ride_id' = $1`, toCancel.GetRideId()).Scan(&cancelMsgs)
+	if cancelMsgs != 1 {
+		t.Fatalf("cancel messages queued: %d, want 1 (repeat cancel must not add another)", cancelMsgs)
+	}
+	// Matching is back but still refuses this start: the cancel must wait behind it, not be delivered first.
+	relayMatching.fail(nil)
+	relayMatching.failStart(status.Error(codes.Unavailable, "start refused"))
+	runRelay()
+	for _, m := range relayMatching.sent() {
+		if m == "cancel:"+toCancel.GetRideId() {
+			t.Fatal("cancel delivered while the ride's start was still unsent")
+		}
+	}
+	relayMatching.failStart(nil)
+	for range 3 {
+		if err := runRelay(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var forRide []string
+	for _, m := range relayMatching.sent() {
+		if strings.HasSuffix(m, toCancel.GetRideId()) {
+			forRide = append(forRide, m)
+		}
+	}
+	if want := []string{"start:" + toCancel.GetRideId(), "cancel:" + toCancel.GetRideId()}; fmt.Sprint(forRide) != fmt.Sprint(want) {
+		t.Fatalf("delivery order for the ride: %v, want %v", forRide, want)
+	}
+
+	// A trip that has started can't be cancelled by the rider; an accepted one can.
+	started, _ := client.CreateRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000003"), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	pool.Exec(ctx, `UPDATE rides SET status = 'in_progress', driver_id = 'cccccccc-0000-0000-0000-000000000009' WHERE id = $1`, started.GetRideId())
+	wantCode(t, "cancel started trip", cancelRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000003"), started.GetRideId()), codes.FailedPrecondition)
+	accepted, _ := client.CreateRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000004"), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	pool.Exec(ctx, `UPDATE rides SET status = 'accepted', driver_id = 'cccccccc-0000-0000-0000-00000000000a' WHERE id = $1`, accepted.GetRideId())
+	if err := cancelRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000004"), accepted.GetRideId()); err != nil {
+		t.Fatalf("cancel accepted ride: %v", err)
+	}
+}
+
+// fakeMatching records StartMatching and CancelMatching calls, in order, and fails them while err is set.
+type fakeMatching struct {
+	matchingv1.MatchingServiceClient
+	mu       sync.Mutex
+	err      error
+	startErr error // fails only StartMatching, to test that a ride's cancel never overtakes its start
+	reqs     []*matchingv1.StartMatchingRequest
+	order    []string
+}
+
+func (f *fakeMatching) failStart(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.startErr = err
+}
+
+func (f *fakeMatching) CancelMatching(_ context.Context, in *matchingv1.CancelMatchingRequest, _ ...grpc.CallOption) (*matchingv1.CancelMatchingResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.order = append(f.order, "cancel:"+in.GetRideId())
+	return &matchingv1.CancelMatchingResponse{}, nil
+}
+
+func (f *fakeMatching) sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.order...)
+}
+
+func (f *fakeMatching) StartMatching(_ context.Context, in *matchingv1.StartMatchingRequest, _ ...grpc.CallOption) (*matchingv1.StartMatchingResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.startErr != nil {
+		return nil, f.startErr
+	}
+	f.reqs = append(f.reqs, in)
+	f.order = append(f.order, "start:"+in.GetRideId())
+	return &matchingv1.StartMatchingResponse{}, nil
+}
+
+func (f *fakeMatching) fail(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+func (f *fakeMatching) calls() []*matchingv1.StartMatchingRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*matchingv1.StartMatchingRequest(nil), f.reqs...)
 }
 
 func migrate(t *testing.T, url string) {

@@ -6,6 +6,8 @@ service RideService {
   rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
   rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
   rpc AssignDriver(AssignDriverRequest) returns (AssignDriverResponse);
+  rpc MarkNoDriver(MarkNoDriverRequest) returns (MarkNoDriverResponse);
+  rpc CancelRide(CancelRideRequest) returns (CancelRideResponse);
 }
 
 message Location {
@@ -39,3 +41,19 @@ message AssignDriverRequest {
 }
 
 message AssignDriverResponse {}
+
+// Ends a requested ride as cancelled with reason no_driver. Idempotent: an already cancelled ride succeeds.
+// FAILED_PRECONDITION: the ride has a driver (accepted, in progress or completed).
+message MarkNoDriverRequest {
+  string ride_id = 1;
+}
+
+message MarkNoDriverResponse {}
+
+// The rider cancels their ride before the trip starts. Idempotent: an already cancelled ride succeeds.
+// NOT_FOUND: no such ride for this rider. FAILED_PRECONDITION: the trip has started or finished.
+message CancelRideRequest {
+  string ride_id = 1;
+}
+
+message CancelRideResponse {}

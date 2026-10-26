@@ -48,6 +48,22 @@ func (s *RideServer) AssignDriver(ctx context.Context, req *ridev1.AssignDriverR
 	return &ridev1.AssignDriverResponse{}, nil
 }
 
+func (s *RideServer) MarkNoDriver(ctx context.Context, req *ridev1.MarkNoDriverRequest) (*ridev1.MarkNoDriverResponse, error) {
+	if err := s.service.MarkNoDriver(ctx, req.GetRideId()); err != nil {
+		return nil, err
+	}
+
+	return &ridev1.MarkNoDriverResponse{}, nil
+}
+
+func (s *RideServer) CancelRide(ctx context.Context, req *ridev1.CancelRideRequest) (*ridev1.CancelRideResponse, error) {
+	if err := s.service.CancelRide(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
+		return nil, err
+	}
+
+	return &ridev1.CancelRideResponse{}, nil
+}
+
 func toLocation(l *ridev1.Location) *ride.Location {
 	if l == nil {
 		return nil

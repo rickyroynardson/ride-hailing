@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MatchingService_StartMatching_FullMethodName = "/matching.v1.MatchingService/StartMatching"
-	MatchingService_GetOffer_FullMethodName      = "/matching.v1.MatchingService/GetOffer"
-	MatchingService_AcceptOffer_FullMethodName   = "/matching.v1.MatchingService/AcceptOffer"
-	MatchingService_DeclineOffer_FullMethodName  = "/matching.v1.MatchingService/DeclineOffer"
+	MatchingService_StartMatching_FullMethodName  = "/matching.v1.MatchingService/StartMatching"
+	MatchingService_GetOffer_FullMethodName       = "/matching.v1.MatchingService/GetOffer"
+	MatchingService_AcceptOffer_FullMethodName    = "/matching.v1.MatchingService/AcceptOffer"
+	MatchingService_DeclineOffer_FullMethodName   = "/matching.v1.MatchingService/DeclineOffer"
+	MatchingService_CancelMatching_FullMethodName = "/matching.v1.MatchingService/CancelMatching"
 )
 
 // MatchingServiceClient is the client API for MatchingService service.
@@ -33,6 +34,7 @@ type MatchingServiceClient interface {
 	GetOffer(ctx context.Context, in *GetOfferRequest, opts ...grpc.CallOption) (*GetOfferResponse, error)
 	AcceptOffer(ctx context.Context, in *AcceptOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error)
 	DeclineOffer(ctx context.Context, in *DeclineOfferRequest, opts ...grpc.CallOption) (*DeclineOfferResponse, error)
+	CancelMatching(ctx context.Context, in *CancelMatchingRequest, opts ...grpc.CallOption) (*CancelMatchingResponse, error)
 }
 
 type matchingServiceClient struct {
@@ -83,6 +85,16 @@ func (c *matchingServiceClient) DeclineOffer(ctx context.Context, in *DeclineOff
 	return out, nil
 }
 
+func (c *matchingServiceClient) CancelMatching(ctx context.Context, in *CancelMatchingRequest, opts ...grpc.CallOption) (*CancelMatchingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelMatchingResponse)
+	err := c.cc.Invoke(ctx, MatchingService_CancelMatching_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MatchingServiceServer is the server API for MatchingService service.
 // All implementations must embed UnimplementedMatchingServiceServer
 // for forward compatibility.
@@ -91,6 +103,7 @@ type MatchingServiceServer interface {
 	GetOffer(context.Context, *GetOfferRequest) (*GetOfferResponse, error)
 	AcceptOffer(context.Context, *AcceptOfferRequest) (*AcceptOfferResponse, error)
 	DeclineOffer(context.Context, *DeclineOfferRequest) (*DeclineOfferResponse, error)
+	CancelMatching(context.Context, *CancelMatchingRequest) (*CancelMatchingResponse, error)
 	mustEmbedUnimplementedMatchingServiceServer()
 }
 
@@ -112,6 +125,9 @@ func (UnimplementedMatchingServiceServer) AcceptOffer(context.Context, *AcceptOf
 }
 func (UnimplementedMatchingServiceServer) DeclineOffer(context.Context, *DeclineOfferRequest) (*DeclineOfferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeclineOffer not implemented")
+}
+func (UnimplementedMatchingServiceServer) CancelMatching(context.Context, *CancelMatchingRequest) (*CancelMatchingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelMatching not implemented")
 }
 func (UnimplementedMatchingServiceServer) mustEmbedUnimplementedMatchingServiceServer() {}
 func (UnimplementedMatchingServiceServer) testEmbeddedByValue()                         {}
@@ -206,6 +222,24 @@ func _MatchingService_DeclineOffer_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MatchingService_CancelMatching_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelMatchingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MatchingServiceServer).CancelMatching(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MatchingService_CancelMatching_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MatchingServiceServer).CancelMatching(ctx, req.(*CancelMatchingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MatchingService_ServiceDesc is the grpc.ServiceDesc for MatchingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -228,6 +262,10 @@ var MatchingService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeclineOffer",
 			Handler:    _MatchingService_DeclineOffer_Handler,
+		},
+		{
+			MethodName: "CancelMatching",
+			Handler:    _MatchingService_CancelMatching_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

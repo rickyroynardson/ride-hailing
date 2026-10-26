@@ -16,6 +16,7 @@ import (
 var methodAccess = map[string]grpcserver.Access{
 	"/ride.v1.RideService/FilterAvailableDrivers": grpcserver.ServicesOnly,
 	"/ride.v1.RideService/AssignDriver":           grpcserver.ServicesOnly,
+	"/ride.v1.RideService/MarkNoDriver":           grpcserver.ServicesOnly,
 }
 
 func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, rideService *ride.RideService) *grpc.Server {

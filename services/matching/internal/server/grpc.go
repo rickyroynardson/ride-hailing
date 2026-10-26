@@ -14,7 +14,8 @@ import (
 
 // methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
 var methodAccess = map[string]grpcserver.Access{
-	"/matching.v1.MatchingService/StartMatching": grpcserver.ServicesOnly,
+	"/matching.v1.MatchingService/StartMatching":  grpcserver.ServicesOnly,
+	"/matching.v1.MatchingService/CancelMatching": grpcserver.ServicesOnly,
 }
 
 func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, matchingService *matching.MatchingService) *grpc.Server {

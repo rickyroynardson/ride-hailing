@@ -500,6 +500,88 @@ func (*DeclineOfferResponse) Descriptor() ([]byte, []int) {
 	return file_matching_v1_matching_proto_rawDescGZIP(), []int{9}
 }
 
+// The ride was cancelled: stop matching it and withdraw its offers. Idempotent, and a no-op for a ride matching
+// never heard of or already finished.
+type CancelMatchingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelMatchingRequest) Reset() {
+	*x = CancelMatchingRequest{}
+	mi := &file_matching_v1_matching_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelMatchingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelMatchingRequest) ProtoMessage() {}
+
+func (x *CancelMatchingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelMatchingRequest.ProtoReflect.Descriptor instead.
+func (*CancelMatchingRequest) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CancelMatchingRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+type CancelMatchingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelMatchingResponse) Reset() {
+	*x = CancelMatchingResponse{}
+	mi := &file_matching_v1_matching_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelMatchingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelMatchingResponse) ProtoMessage() {}
+
+func (x *CancelMatchingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_matching_v1_matching_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelMatchingResponse.ProtoReflect.Descriptor instead.
+func (*CancelMatchingResponse) Descriptor() ([]byte, []int) {
+	return file_matching_v1_matching_proto_rawDescGZIP(), []int{11}
+}
+
 var File_matching_v1_matching_proto protoreflect.FileDescriptor
 
 const file_matching_v1_matching_proto_rawDesc = "" +
@@ -529,12 +611,16 @@ const file_matching_v1_matching_proto_rawDesc = "" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\"0\n" +
 	"\x13DeclineOfferRequest\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\tR\aofferId\"\x16\n" +
-	"\x14DeclineOfferResponse2\xe1\x02\n" +
+	"\x14DeclineOfferResponse\"0\n" +
+	"\x15CancelMatchingRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x18\n" +
+	"\x16CancelMatchingResponse2\xbe\x03\n" +
 	"\x0fMatchingService\x12X\n" +
 	"\rStartMatching\x12!.matching.v1.StartMatchingRequest\x1a\".matching.v1.StartMatchingResponse\"\x00\x12I\n" +
 	"\bGetOffer\x12\x1c.matching.v1.GetOfferRequest\x1a\x1d.matching.v1.GetOfferResponse\"\x00\x12R\n" +
 	"\vAcceptOffer\x12\x1f.matching.v1.AcceptOfferRequest\x1a .matching.v1.AcceptOfferResponse\"\x00\x12U\n" +
-	"\fDeclineOffer\x12 .matching.v1.DeclineOfferRequest\x1a!.matching.v1.DeclineOfferResponse\"\x00B\xb7\x01\n" +
+	"\fDeclineOffer\x12 .matching.v1.DeclineOfferRequest\x1a!.matching.v1.DeclineOfferResponse\"\x00\x12[\n" +
+	"\x0eCancelMatching\x12\".matching.v1.CancelMatchingRequest\x1a#.matching.v1.CancelMatchingResponse\"\x00B\xb7\x01\n" +
 	"\x0fcom.matching.v1B\rMatchingProtoP\x01ZHgithub.com/rickyroynardson/ride-hailing/proto/gen/matching/v1;matchingv1\xa2\x02\x03MXX\xaa\x02\vMatching.V1\xca\x02\vMatching\\V1\xe2\x02\x17Matching\\V1\\GPBMetadata\xea\x02\fMatching::V1b\x06proto3"
 
 var (
@@ -549,35 +635,39 @@ func file_matching_v1_matching_proto_rawDescGZIP() []byte {
 	return file_matching_v1_matching_proto_rawDescData
 }
 
-var file_matching_v1_matching_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_matching_v1_matching_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_matching_v1_matching_proto_goTypes = []any{
-	(*Location)(nil),              // 0: matching.v1.Location
-	(*StartMatchingRequest)(nil),  // 1: matching.v1.StartMatchingRequest
-	(*StartMatchingResponse)(nil), // 2: matching.v1.StartMatchingResponse
-	(*GetOfferRequest)(nil),       // 3: matching.v1.GetOfferRequest
-	(*GetOfferResponse)(nil),      // 4: matching.v1.GetOfferResponse
-	(*Offer)(nil),                 // 5: matching.v1.Offer
-	(*AcceptOfferRequest)(nil),    // 6: matching.v1.AcceptOfferRequest
-	(*AcceptOfferResponse)(nil),   // 7: matching.v1.AcceptOfferResponse
-	(*DeclineOfferRequest)(nil),   // 8: matching.v1.DeclineOfferRequest
-	(*DeclineOfferResponse)(nil),  // 9: matching.v1.DeclineOfferResponse
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*Location)(nil),               // 0: matching.v1.Location
+	(*StartMatchingRequest)(nil),   // 1: matching.v1.StartMatchingRequest
+	(*StartMatchingResponse)(nil),  // 2: matching.v1.StartMatchingResponse
+	(*GetOfferRequest)(nil),        // 3: matching.v1.GetOfferRequest
+	(*GetOfferResponse)(nil),       // 4: matching.v1.GetOfferResponse
+	(*Offer)(nil),                  // 5: matching.v1.Offer
+	(*AcceptOfferRequest)(nil),     // 6: matching.v1.AcceptOfferRequest
+	(*AcceptOfferResponse)(nil),    // 7: matching.v1.AcceptOfferResponse
+	(*DeclineOfferRequest)(nil),    // 8: matching.v1.DeclineOfferRequest
+	(*DeclineOfferResponse)(nil),   // 9: matching.v1.DeclineOfferResponse
+	(*CancelMatchingRequest)(nil),  // 10: matching.v1.CancelMatchingRequest
+	(*CancelMatchingResponse)(nil), // 11: matching.v1.CancelMatchingResponse
+	(*timestamppb.Timestamp)(nil),  // 12: google.protobuf.Timestamp
 }
 var file_matching_v1_matching_proto_depIdxs = []int32{
 	0,  // 0: matching.v1.StartMatchingRequest.pickup:type_name -> matching.v1.Location
 	5,  // 1: matching.v1.GetOfferResponse.offer:type_name -> matching.v1.Offer
 	0,  // 2: matching.v1.Offer.pickup:type_name -> matching.v1.Location
-	10, // 3: matching.v1.Offer.expires_at:type_name -> google.protobuf.Timestamp
+	12, // 3: matching.v1.Offer.expires_at:type_name -> google.protobuf.Timestamp
 	1,  // 4: matching.v1.MatchingService.StartMatching:input_type -> matching.v1.StartMatchingRequest
 	3,  // 5: matching.v1.MatchingService.GetOffer:input_type -> matching.v1.GetOfferRequest
 	6,  // 6: matching.v1.MatchingService.AcceptOffer:input_type -> matching.v1.AcceptOfferRequest
 	8,  // 7: matching.v1.MatchingService.DeclineOffer:input_type -> matching.v1.DeclineOfferRequest
-	2,  // 8: matching.v1.MatchingService.StartMatching:output_type -> matching.v1.StartMatchingResponse
-	4,  // 9: matching.v1.MatchingService.GetOffer:output_type -> matching.v1.GetOfferResponse
-	7,  // 10: matching.v1.MatchingService.AcceptOffer:output_type -> matching.v1.AcceptOfferResponse
-	9,  // 11: matching.v1.MatchingService.DeclineOffer:output_type -> matching.v1.DeclineOfferResponse
-	8,  // [8:12] is the sub-list for method output_type
-	4,  // [4:8] is the sub-list for method input_type
+	10, // 8: matching.v1.MatchingService.CancelMatching:input_type -> matching.v1.CancelMatchingRequest
+	2,  // 9: matching.v1.MatchingService.StartMatching:output_type -> matching.v1.StartMatchingResponse
+	4,  // 10: matching.v1.MatchingService.GetOffer:output_type -> matching.v1.GetOfferResponse
+	7,  // 11: matching.v1.MatchingService.AcceptOffer:output_type -> matching.v1.AcceptOfferResponse
+	9,  // 12: matching.v1.MatchingService.DeclineOffer:output_type -> matching.v1.DeclineOfferResponse
+	11, // 13: matching.v1.MatchingService.CancelMatching:output_type -> matching.v1.CancelMatchingResponse
+	9,  // [9:14] is the sub-list for method output_type
+	4,  // [4:9] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -594,7 +684,7 @@ func file_matching_v1_matching_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_matching_v1_matching_proto_rawDesc), len(file_matching_v1_matching_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

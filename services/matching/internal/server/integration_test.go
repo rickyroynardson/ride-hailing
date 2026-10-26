@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -65,9 +66,33 @@ type fakeRide struct {
 	ridev1.RideServiceClient
 	busy map[string]bool
 
-	mu        sync.Mutex
-	assignErr func(ride, driver string) error
-	assigned  []string
+	mu          sync.Mutex
+	assignErr   func(ride, driver string) error
+	assigned    []string
+	noDriverErr error
+	noDriver    []string
+}
+
+func (f *fakeRide) MarkNoDriver(_ context.Context, in *ridev1.MarkNoDriverRequest, _ ...grpc.CallOption) (*ridev1.MarkNoDriverResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.noDriverErr != nil {
+		return nil, f.noDriverErr
+	}
+	f.noDriver = append(f.noDriver, in.GetRideId())
+	return &ridev1.MarkNoDriverResponse{}, nil
+}
+
+func (f *fakeRide) setNoDriverErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.noDriverErr = err
+}
+
+func (f *fakeRide) noDriverCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.noDriver...)
 }
 
 func (f *fakeRide) AssignDriver(_ context.Context, in *ridev1.AssignDriverRequest, _ ...grpc.CallOption) (*ridev1.AssignDriverResponse, error) {
@@ -289,12 +314,43 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// Once that offer expires too, everyone nearby has been asked and the deadline has passed: no_driver.
+	// Ride is unreachable at first, so the news waits until ride is back, then is sent exactly once.
 	pool.Exec(ctx, `UPDATE offers SET expires_at = now() - interval '1 second' WHERE ride_id = $1 AND status = 'pending'`, rideD)
-	tick()
+	// Meanwhile another ride waits for a driver; ride being unreachable mustn't stop it being offered.
+	const rideW, driverW = "aaaaaaaa-0000-0000-0000-000000000009", "dddddddd-0000-0000-0000-000000000099"
+	location.set()
+	if _, err := client.StartMatching(service, &matchingv1.StartMatchingRequest{RideId: rideW, Pickup: pickup}); err != nil {
+		t.Fatal(err)
+	}
+	location.set(driverW)
+	ride.setNoDriverErr(status.Error(codes.Unavailable, "ride down"))
+	if err := svc.Tick(ctx); err == nil || !strings.Contains(err.Error(), "ride down") {
+		t.Fatalf("tick telling an unreachable ride: got %v, want the ride error", err)
+	}
+	var offeredW string
+	pool.QueryRow(ctx, `SELECT driver_id FROM offers WHERE ride_id = $1 AND status = 'pending'`, rideW).Scan(&offeredW)
+	if offeredW != driverW {
+		t.Fatalf("waiting ride not offered while ride was down: got %q, want %s", offeredW, driverW)
+	}
 	if st := requestStatus(); st != "no_driver" {
 		t.Fatalf("after deadline: status %q, want no_driver", st)
 	}
 	wantOffers("given up", offerState{first, "expired"}, offerState{second, "expired"})
+	notified := func() bool {
+		t.Helper()
+		var at *time.Time
+		pool.QueryRow(ctx, `SELECT ride_notified_at FROM match_requests WHERE ride_id = $1`, rideD).Scan(&at)
+		return at != nil
+	}
+	if notified() || len(ride.noDriverCalls()) != 0 {
+		t.Fatal("no_driver marked notified while ride was down")
+	}
+	ride.setNoDriverErr(nil)
+	tick()
+	tick()
+	if !notified() || fmt.Sprint(ride.noDriverCalls()) != fmt.Sprint([]string{rideD}) {
+		t.Fatalf("after ride recovered: notified %v, MarkNoDriver calls %v; want one call for %s", notified(), ride.noDriverCalls(), rideD)
+	}
 
 	// A finished request stays finished: no more ticks, and a late StartMatching retry, offer anything.
 	location.set("dddddddd-0000-0000-0000-000000000013")
@@ -442,6 +498,67 @@ func TestIntegration(t *testing.T) {
 	}
 	if st := statusOf("match_requests", "ride_id", rideH); st != "matching" {
 		t.Fatalf("request after busy driver: %q, want matching", st)
+	}
+
+	// CancelMatching: the rider cancelled. The pending offer is withdrawn and nobody else is offered the ride.
+	ride.setAssign(nil)
+	cancelMatching := func(ride string) error {
+		_, err := client.CancelMatching(service, &matchingv1.CancelMatchingRequest{RideId: ride})
+		return err
+	}
+	rideK := rideN(5)
+	start(rideK, driver(8), driver(9))
+	if offerOf(driver(8)).GetRideId() != rideK {
+		t.Fatal("setup: driver 8 not offered ride K")
+	}
+	_, err = client.CancelMatching(withDriverToken(t, ctx, driver(8)), &matchingv1.CancelMatchingRequest{RideId: rideK})
+	wantCode(t, "cancel matching with user token", err, codes.PermissionDenied)
+	for i := range 2 {
+		if err := cancelMatching(rideK); err != nil {
+			t.Fatalf("cancel matching attempt %d: %v", i+1, err)
+		}
+	}
+	if st := statusOf("match_requests", "ride_id", rideK); st != "cancelled" {
+		t.Fatalf("request after cancel: %q", st)
+	}
+	if offerOf(driver(8)) != nil {
+		t.Fatal("driver still sees the cancelled ride's offer")
+	}
+	tick()
+	if offerOf(driver(9)) != nil {
+		t.Fatal("cancelled ride offered to the next driver")
+	}
+	if err := cancelMatching("bbbbbbbb-0000-0000-0000-00000000ffff"); err != nil {
+		t.Fatalf("cancel matching for an unknown ride: %v", err)
+	}
+	wantCode(t, "cancel matching bad id", cancelMatching("ride-1"), codes.InvalidArgument)
+
+	// Cancelled while a driver's accept awaited ride's confirmation: the accept is withdrawn, not confirmed later.
+	rideL := rideN(6)
+	start(rideL, driver(10))
+	o = offerOf(driver(10))
+	ride.setAssign(func(string, string) error { return status.Error(codes.Unavailable, "ride down") })
+	_, err = accept(driver(10), o.GetOfferId())
+	wantCode(t, "accept while ride down", err, codes.Unavailable)
+	if err := cancelMatching(rideL); err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf("offers", "id", o.GetOfferId()); st != "cancelled" {
+		t.Fatalf("unconfirmed accept after cancel: %q, want cancelled", st)
+	}
+	ride.setAssign(nil)
+	tick()
+	if st := statusOf("match_requests", "ride_id", rideL); st != "cancelled" {
+		t.Fatalf("cancelled request reconfirmed: %q", st)
+	}
+
+	// A confirmed accept stays as history when the rider cancels the ride later.
+	matchedOffer := o2.GetOfferId() // ride E, matched earlier
+	if err := cancelMatching(rideE); err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf("offers", "id", matchedOffer); st != "accepted" {
+		t.Fatalf("confirmed accept rewritten to %q", st)
 	}
 }
 

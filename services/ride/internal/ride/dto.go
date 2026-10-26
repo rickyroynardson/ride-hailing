@@ -13,6 +13,8 @@ var (
 	// the first ends matching for the ride, the second only rules out this driver.
 	ErrRideUnavailable = errors.New("ride is no longer waiting for a driver")
 	ErrDriverBusy      = errors.New("driver already has an active ride")
+	// ErrRideNotFound also covers another rider's ride, so a rider can't probe which ride IDs exist.
+	ErrRideNotFound = errors.New("ride not found")
 )
 
 type Location struct {

@@ -1,0 +1,161 @@
+// Package outbox delivers ride's messages to other services reliably (the transactional outbox pattern): a message
+// is written in the same transaction as the change it announces, and a relay keeps sending it until the receiver
+// confirms. Delivery is at least once, so receivers must be idempotent.
+package outbox
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+)
+
+const (
+	// batchSize caps how many messages one relay round claims.
+	batchSize = 50
+	// sendTimeout bounds each delivery; a claimed message's row lock is held while it is sent.
+	sendTimeout = 3 * time.Second
+)
+
+// Message is something ride must tell another service. Kind names it in the outbox table.
+type Message interface {
+	Kind() string
+}
+
+type Location struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
+// StartMatching asks matching to find a driver for a new ride.
+type StartMatching struct {
+	RideID string   `json:"ride_id"`
+	Pickup Location `json:"pickup"`
+}
+
+func (StartMatching) Kind() string { return "start_matching" }
+
+// CancelMatching tells matching the rider cancelled, so it stops offering the ride.
+type CancelMatching struct {
+	RideID string `json:"ride_id"`
+}
+
+func (CancelMatching) Kind() string { return "cancel_matching" }
+
+// Add writes a message in the caller's transaction, so it is saved exactly when the change it announces is.
+func Add(ctx context.Context, tx pgx.Tx, m Message) error {
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO outbox(kind, payload) VALUES ($1, $2)`, m.Kind(), payload)
+	return err
+}
+
+var (
+	sentTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ride_outbox_sent_total", Help: "Outbox messages delivered, by kind.",
+	}, []string{"kind"})
+	failedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ride_outbox_failed_total", Help: "Outbox delivery attempts that failed, by kind.",
+	}, []string{"kind"})
+)
+
+// Relay sends unsent messages to the services they are for.
+type Relay struct {
+	db       *pgxpool.Pool
+	matching matchingv1.MatchingServiceClient
+}
+
+func NewRelay(db *pgxpool.Pool, matching matchingv1.MatchingServiceClient) *Relay {
+	return &Relay{db: db, matching: matching}
+}
+
+// Run delivers one batch of unsent messages, oldest first, and returns the joined delivery errors. It claims rows
+// with FOR UPDATE SKIP LOCKED, so relays on several ride replicas split the work instead of sending the same
+// message at the same time. A failed message stays unsent, with its attempt count and error, and is retried on the
+// next round; one failure doesn't hold up the others.
+// ponytail: retries failed messages forever; move them to a dead-letter state after N attempts if a permanent
+// error (e.g. a malformed payload) ever shows up
+func (r *Relay) Run(ctx context.Context) error {
+	var errs []error
+	err := pgx.BeginFunc(ctx, r.db, func(tx pgx.Tx) error {
+		// A ride's messages go in order: one waits while an older message for the same ride is unsent, so
+		// matching can never get a ride's cancel before its start. Other rides' messages aren't held up.
+		rows, err := tx.Query(ctx,
+			`SELECT o.id, o.kind, o.payload FROM outbox o
+			WHERE o.sent_at IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM outbox p
+				WHERE p.sent_at IS NULL AND p.id < o.id AND p.payload->>'ride_id' = o.payload->>'ride_id'
+			)
+			ORDER BY o.id LIMIT $1 FOR UPDATE OF o SKIP LOCKED`, batchSize)
+		if err != nil {
+			return err
+		}
+		type msg struct {
+			id      int64
+			kind    string
+			payload []byte
+		}
+		msgs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (msg, error) {
+			var m msg
+			err := row.Scan(&m.id, &m.kind, &m.payload)
+			return m, err
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, m := range msgs {
+			if err := r.send(ctx, m.kind, m.payload); err != nil {
+				failedTotal.WithLabelValues(m.kind).Inc()
+				errs = append(errs, fmt.Errorf("outbox %d (%s): %w", m.id, m.kind, err))
+				if _, err := tx.Exec(ctx, `UPDATE outbox SET attempts = attempts + 1, last_error = $2 WHERE id = $1`, m.id, err.Error()); err != nil {
+					return err
+				}
+				continue
+			}
+			sentTotal.WithLabelValues(m.kind).Inc()
+			if _, err := tx.Exec(ctx, `UPDATE outbox SET attempts = attempts + 1, sent_at = now(), last_error = NULL WHERE id = $1`, m.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return errors.Join(append(errs, err)...)
+}
+
+func (r *Relay) send(ctx context.Context, kind string, payload []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	switch kind {
+	case StartMatching{}.Kind():
+		var m StartMatching
+		if err := json.Unmarshal(payload, &m); err != nil {
+			return err
+		}
+		_, err := r.matching.StartMatching(ctx, &matchingv1.StartMatchingRequest{
+			RideId: m.RideID,
+			Pickup: &matchingv1.Location{Lat: m.Pickup.Lat, Lng: m.Pickup.Lng},
+		})
+		return err
+	case CancelMatching{}.Kind():
+		var m CancelMatching
+		if err := json.Unmarshal(payload, &m); err != nil {
+			return err
+		}
+		_, err := r.matching.CancelMatching(ctx, &matchingv1.CancelMatchingRequest{RideId: m.RideID})
+		return err
+	default:
+		return fmt.Errorf("unknown outbox kind %q", kind)
+	}
+}

@@ -14,6 +14,8 @@ type Config struct {
 	ServiceName string `mapstructure:"service_name"`
 	PostgresURL string `mapstructure:"postgres_url"`
 	JWTSecret   string `mapstructure:"jwt_secret"`
+	// MatchingAddr is where the outbox relay sends matching messages; the default is the compose service name.
+	MatchingAddr string `mapstructure:"matching_addr"`
 }
 
 func Load() (*Config, error) {
@@ -25,6 +27,7 @@ func Load() (*Config, error) {
 	v.SetDefault("service_name", "ride-service")
 	v.SetDefault("postgres_url", "")
 	v.SetDefault("jwt_secret", "")
+	v.SetDefault("matching_addr", "matching:50051")
 
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")

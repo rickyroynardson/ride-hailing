@@ -167,10 +167,11 @@ map.on('click', async e => {
 async function goOffline(id) { await api('POST', `/api/actors/${id}/offline`); await poll(); }
 async function checkOffer(id) { await api('POST', `/api/actors/${id}/offer`); ui.tab = 'calls'; await poll(); }
 async function answerOffer(id, offerId, answer) { await api('POST', `/api/actors/${id}/offers/${offerId}/${answer}`); await poll(); }
+async function cancelRide(id, rideId) { await api('POST', `/api/actors/${id}/rides/${rideId}/cancel`); await poll(); }
 async function removeActor(id) { await api('POST', `/api/actors/${id}/remove`); if (ui.selected === id) ui.selected = null; await poll(); }
 async function clearLog() { await api('POST', '/api/calls/clear'); ui.expanded.clear(); await poll(); }
 async function resetAll() {
-  if (!confirm('Reset all dev data?\n\nDeletes every ride, offer, match request and driver location, and the users this console created. Users you registered yourself are kept.')) return;
+  if (!confirm('Reset all dev data?\n\nDeletes every ride, outbox message, offer, match request and driver location, and the users this console created. Users you registered yourself are kept.')) return;
   const removed = await api('POST', '/api/reset');
   ui.selected = null; ui.draft = {}; ui.expanded.clear();
   toast(`Reset: ${Object.entries(removed).map(([k, n]) => `${n} ${k}`).join(', ')}`);
@@ -212,8 +213,11 @@ function renderActors() {
     } else {
       const ride = state.rides.find(r => r.id === a.rideId);
       if (ride) status = `<span class="pill ${STATUS_PILL[ride.status] || ''}">${esc(ride.status)}</span>${ride.driverId ? ` <span class="pill ok">${esc(nameOf(ride.driverId))}</span>` : ''}`;
+      if (ride && ['requested', 'accepted'].includes(ride.status)) {
+        actions += `<button onclick="event.stopPropagation(); cancelRide('${a.id}', '${ride.id}')">Cancel ride</button>`;
+      }
       if (a.id === ui.selected) {
-        actions = `<button class="primary" ${ui.draft.pickup && ui.draft.dropoff ? '' : 'disabled'} onclick="event.stopPropagation(); requestRide('${a.id}')">Request ride</button>`
+        actions += `<button class="primary" ${ui.draft.pickup && ui.draft.dropoff ? '' : 'disabled'} onclick="event.stopPropagation(); requestRide('${a.id}')">Request ride</button>`
           + (ui.draft.pickup ? `<button onclick="event.stopPropagation(); ui.draft = {}; render()">Clear</button>` : '');
       }
     }
@@ -286,7 +290,7 @@ function renderPanel() {
     panel.innerHTML = err('rides') + err('match_requests') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th></tr>${state.rides.map(r => `<tr>
       <td class="mono">${short(r.id)}<div style="color:var(--muted)">${ago(Date.parse(r.createdAt))}</div></td>
       <td>${esc(nameOf(r.riderId))}</td><td>${r.driverId ? esc(nameOf(r.driverId)) : '—'}</td>
-      <td><span class="pill ${STATUS_PILL[r.status] || ''}">${esc(r.status)}</span></td>
+      <td><span class="pill ${STATUS_PILL[r.status] || ''}">${esc(r.status)}</span>${r.cancelReason ? `<div style="color:var(--muted)">${esc(r.cancelReason.replace('_', ' '))}</div>` : ''}</td>
       <td>${matchCell(r)}</td>
     </tr>`).join('')}</table>` : '<div class="empty">No rides yet. Select a rider and click the map.</div>');
   } else {

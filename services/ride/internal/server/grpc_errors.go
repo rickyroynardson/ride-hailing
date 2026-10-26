@@ -16,6 +16,8 @@ func errorCodes(err error) (codes.Code, bool) {
 		return codes.AlreadyExists, true
 	case errors.Is(err, ride.ErrRideUnavailable):
 		return codes.FailedPrecondition, true
+	case errors.Is(err, ride.ErrRideNotFound):
+		return codes.NotFound, true
 	}
 	return 0, false
 }

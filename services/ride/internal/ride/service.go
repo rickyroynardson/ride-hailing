@@ -63,3 +63,17 @@ func (s *RideService) AssignDriver(ctx context.Context, rideID, driverID string)
 	}
 	return s.repository.AssignDriver(ctx, rideID, driverID)
 }
+
+func (s *RideService) MarkNoDriver(ctx context.Context, rideID string) error {
+	if !uuidPattern.MatchString(rideID) {
+		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+	}
+	return s.repository.MarkNoDriver(ctx, rideID)
+}
+
+func (s *RideService) CancelRide(ctx context.Context, rideID, riderID string) error {
+	if !uuidPattern.MatchString(rideID) {
+		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+	}
+	return s.repository.CancelRide(ctx, rideID, riderID)
+}

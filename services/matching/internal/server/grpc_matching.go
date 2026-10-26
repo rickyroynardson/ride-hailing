@@ -77,3 +77,11 @@ func (s *MatchingServer) DeclineOffer(ctx context.Context, req *matchingv1.Decli
 
 	return &matchingv1.DeclineOfferResponse{}, nil
 }
+
+func (s *MatchingServer) CancelMatching(ctx context.Context, req *matchingv1.CancelMatchingRequest) (*matchingv1.CancelMatchingResponse, error) {
+	if err := s.service.CancelMatching(ctx, req.GetRideId()); err != nil {
+		return nil, err
+	}
+
+	return &matchingv1.CancelMatchingResponse{}, nil
+}

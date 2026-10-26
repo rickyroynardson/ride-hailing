@@ -225,3 +225,39 @@ func (r *MatchingRepository) MatchingRequest(ctx context.Context, rideID string)
 	}
 	return &in, nil
 }
+
+// UnnotifiedNoDriver returns requests that ended no_driver but ride hasn't confirmed knowing yet.
+func (r *MatchingRepository) UnnotifiedNoDriver(ctx context.Context, limit int) ([]string, error) {
+	rows, err := r.DB.Query(ctx,
+		`SELECT ride_id FROM match_requests WHERE status = 'no_driver' AND ride_notified_at IS NULL ORDER BY updated_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+func (r *MatchingRepository) MarkRideNotified(ctx context.Context, rideID string) error {
+	_, err := r.DB.Exec(ctx, `UPDATE match_requests SET ride_notified_at = now() WHERE ride_id = $1`, rideID)
+	return err
+}
+
+// CancelMatching ends a request that is still matching and withdraws its offers: pending ones, and an accepted one
+// ride hasn't confirmed (it never will, the ride is cancelled). A request that already finished keeps its offers as
+// history. Reports whether the request was still matching.
+func (r *MatchingRepository) CancelMatching(ctx context.Context, rideID string) (bool, error) {
+	var wasMatching bool
+	err := pgx.BeginFunc(ctx, r.DB, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE match_requests SET status = 'cancelled', updated_at = now() WHERE ride_id = $1 AND status = 'matching'`, rideID)
+		if err != nil {
+			return err
+		}
+		wasMatching = tag.RowsAffected() == 1
+		_, err = tx.Exec(ctx,
+			`UPDATE offers SET status = 'cancelled', updated_at = now()
+			WHERE ride_id = $1 AND (status = 'pending' OR ($2 AND status = 'accepted'))`,
+			rideID, wasMatching)
+		return err
+	})
+	return wasMatching, err
+}

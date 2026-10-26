@@ -9,6 +9,7 @@ service MatchingService {
   rpc GetOffer(GetOfferRequest) returns (GetOfferResponse) {}
   rpc AcceptOffer(AcceptOfferRequest) returns (AcceptOfferResponse) {}
   rpc DeclineOffer(DeclineOfferRequest) returns (DeclineOfferResponse) {}
+  rpc CancelMatching(CancelMatchingRequest) returns (CancelMatchingResponse) {}
 }
 
 message Location {
@@ -58,3 +59,11 @@ message DeclineOfferRequest {
 }
 
 message DeclineOfferResponse {}
+
+// The ride was cancelled: stop matching it and withdraw its offers. Idempotent, and a no-op for a ride matching
+// never heard of or already finished.
+message CancelMatchingRequest {
+  string ride_id = 1;
+}
+
+message CancelMatchingResponse {}
