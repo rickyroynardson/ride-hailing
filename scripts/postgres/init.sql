@@ -1,1 +1,2 @@
 CREATE DATABASE rides;
+CREATE DATABASE matching;

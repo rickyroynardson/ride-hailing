@@ -1,0 +1,6 @@
+app_env: "development"
+http_port: "8083"
+grpc_port: "50054"
+service_name: "matching-service"
+postgres_url: "postgres://postgres:postgres@localhost:5432/matching?sslmode=disable"
+jwt_secret: "dev-secret-change-me"

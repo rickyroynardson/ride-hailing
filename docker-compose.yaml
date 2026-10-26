@@ -71,6 +71,21 @@ services:
       redis:
         condition: service_healthy
 
+  matching:
+    container_name: matching-service
+    build:
+      context: .
+      dockerfile: services/matching/Dockerfile
+    ports:
+      - "8083:8080"
+      - "50054:50051"
+    environment:
+      POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/matching?sslmode=disable"
+      JWT_SECRET: "dev-secret-change-me"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -81,6 +96,7 @@ services:
       - user
       - ride
       - location
+      - matching
 
 volumes:
   postgres_data:

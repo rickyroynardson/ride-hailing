@@ -11,3 +11,6 @@ scrape_configs:
   - job_name: location-service
     static_configs:
       - targets: ["location:8080"]
+  - job_name: matching-service
+    static_configs:
+      - targets: ["matching:8080"]
