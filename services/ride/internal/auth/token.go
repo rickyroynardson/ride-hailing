@@ -1,23 +1,31 @@
 package auth
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var ErrInvalidAuth = errors.New("invalid or missing access token")
+var (
+	ErrInvalidAuth = errors.New("invalid or missing access token")
+	ErrWrongCaller = errors.New("this method is not available to this caller")
+)
 
-// Caller is the authenticated user behind a request, as stated by the access token the user service signed.
+// Caller is who is behind a request: a user (rider or driver), as stated by the access token the user service
+// signed, or another service, as stated by its service token. Exactly one of UserID and Service is set.
 type Caller struct {
-	UserID string
-	Driver bool
+	UserID  string
+	Driver  bool
+	Service string
 }
 
-// claims mirrors the user service's access token claims.
-// copied from services/user; move to a shared pkg when a third service verifies tokens
+// claims mirrors the user service's access token claims, plus Service for service tokens.
+// note: copied in services/{ride,location,matching}; keep the copies identical
 type claims struct {
-	Driver bool `json:"driver,omitempty"`
+	Driver  bool   `json:"driver,omitempty"`
+	Service string `json:"svc,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -35,9 +43,49 @@ func (v *Verifier) Verify(token string) (Caller, error) {
 	_, err := jwt.ParseWithClaims(token, &c, func(*jwt.Token) (any, error) {
 		return v.secret, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
-	if err != nil || c.Subject == "" {
+	if err != nil {
+		return Caller{}, ErrInvalidAuth
+	}
+	if c.Service != "" {
+		return Caller{Service: c.Service}, nil
+	}
+	if c.Subject == "" {
 		return Caller{}, ErrInvalidAuth
 	}
 
 	return Caller{UserID: c.Subject, Driver: c.Driver}, nil
 }
+
+// serviceTokenTTL is short because a fresh token is signed for every call.
+const serviceTokenTTL = time.Minute
+
+// ServiceCredentials signs a service token for each outgoing gRPC call. Use with grpc.WithPerRPCCredentials.
+// note: all services share JWT_SECRET (HS256), so any service could also sign user tokens; move to
+// asymmetric keys (RS256/EdDSA, only the user service holding the private key) or mTLS when that matters
+type ServiceCredentials struct {
+	name   string
+	secret []byte
+}
+
+func NewServiceCredentials(name, secret string) ServiceCredentials {
+	return ServiceCredentials{name: name, secret: []byte(secret)}
+}
+
+func (s ServiceCredentials) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	now := time.Now()
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims{
+		Service: s.name,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "service:" + s.name,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(serviceTokenTTL)),
+		},
+	}).SignedString(s.secret)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"authorization": "Bearer " + tok}, nil
+}
+
+// RequireTransportSecurity is false while services talk over plaintext inside the compose network.
+func (ServiceCredentials) RequireTransportSecurity() bool { return false }

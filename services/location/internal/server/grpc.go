@@ -11,6 +11,11 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+// methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
+var methodAccess = map[string]access{
+	"/location.v1.LocationService/ListNearbyDrivers": usersOrServices,
+}
+
 func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier, locationService *location.LocationService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
@@ -18,7 +23,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier, locationService *loc
 	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		loggingInterceptor(lg),
-		authInterceptor(verifier),
+		authInterceptor(verifier, methodAccess),
 	))
 
 	locationv1.RegisterLocationServiceServer(gs, NewLocationServer(locationService))

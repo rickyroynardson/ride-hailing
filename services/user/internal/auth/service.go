@@ -113,8 +113,11 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 
 // accessClaims marks approved drivers so other services can authorize driver actions without calling this one.
 // A suspension takes effect once the current access token expires.
+// Service is set only on service tokens, which other services sign for each other; the user service has no
+// internal RPCs, so it rejects them. Keep in sync with claims in services/{ride,location,matching}/internal/auth.
 type accessClaims struct {
-	Driver bool `json:"driver,omitempty"`
+	Driver  bool   `json:"driver,omitempty"`
+	Service string `json:"svc,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -124,7 +127,7 @@ func (s *AuthService) VerifyAccessToken(token string) (string, error) {
 	_, err := jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) {
 		return []byte(s.jwtSecret), nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
-	if err != nil || claims.Subject == "" {
+	if err != nil || claims.Subject == "" || claims.Service != "" {
 		return "", ErrInvalidAuth
 	}
 

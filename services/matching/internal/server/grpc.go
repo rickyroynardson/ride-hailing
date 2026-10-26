@@ -10,6 +10,9 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+// methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
+var methodAccess = map[string]access{}
+
 func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
@@ -17,7 +20,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *auth.Verifier) *grpc.Server {
 	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		loggingInterceptor(lg),
-		authInterceptor(verifier),
+		authInterceptor(verifier, methodAccess),
 	))
 
 	matchingv1.RegisterMatchingServiceServer(gs, NewMatchingServer())

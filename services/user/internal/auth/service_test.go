@@ -33,6 +33,12 @@ func TestVerifyAccessToken(t *testing.T) {
 		"alg none":     sign(jwt.SigningMethodNone, jwt.UnsafeAllowNoneSignatureType, jwt.RegisteredClaims{Subject: "u1", ExpiresAt: future}),
 		"garbage":      "not-a-jwt",
 	}
+	// A service token must not act as a user here, even with a subject.
+	svc, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims{Service: "matching", RegisteredClaims: jwt.RegisteredClaims{Subject: "service:matching", ExpiresAt: future}}).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid["service token"] = svc
 	for name, tok := range invalid {
 		if _, err := s.VerifyAccessToken(tok); !errors.Is(err, ErrInvalidAuth) {
 			t.Fatalf("%s: expected ErrInvalidAuth, got %v", name, err)

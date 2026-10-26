@@ -72,6 +72,8 @@ func toStatus(err error) error {
 		return status.Error(codes.DeadlineExceeded, "deadline exceeded")
 	case errors.Is(err, auth.ErrInvalidAuth):
 		return status.Error(codes.Unauthenticated, err.Error())
+	case errors.Is(err, auth.ErrWrongCaller):
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, ride.ErrInvalidInput):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, ride.ErrActiveRide):
@@ -83,8 +85,18 @@ func toStatus(err error) error {
 
 type callerKey struct{}
 
-// authInterceptor requires a valid access token on every RPC; riders and drivers both call this service.
-func authInterceptor(verifier *auth.Verifier) grpc.UnaryServerInterceptor {
+// access says who may call a method. Methods missing from a service's access map are usersOnly.
+type access int
+
+const (
+	usersOnly access = iota
+	servicesOnly
+	usersOrServices
+)
+
+// authInterceptor requires a valid user or service token on every RPC, and that the kind of caller is allowed
+// on the method: users can't reach internal RPCs, and a leaked service token can't act as a user.
+func authInterceptor(verifier *auth.Verifier, methodAccess map[string]access) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md, _ := metadata.FromIncomingContext(ctx)
 		token, ok := strings.CutPrefix(strings.Join(md.Get("authorization"), ""), "Bearer ")
@@ -95,6 +107,11 @@ func authInterceptor(verifier *auth.Verifier) grpc.UnaryServerInterceptor {
 		caller, err := verifier.Verify(token)
 		if err != nil {
 			return nil, err
+		}
+
+		switch a := methodAccess[info.FullMethod]; {
+		case caller.Service != "" && a == usersOnly, caller.Service == "" && a == servicesOnly:
+			return nil, auth.ErrWrongCaller
 		}
 
 		return handler(context.WithValue(ctx, callerKey{}, caller), req)
