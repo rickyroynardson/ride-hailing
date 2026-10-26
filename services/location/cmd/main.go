@@ -46,6 +46,25 @@ func main() {
 
 	gs := server.NewGRPCServer(lg, auth.NewVerifier(cfg.JWTSecret), locationService)
 
+	// Every replica runs this; that is harmless, since pruning re-checks each driver and is idempotent.
+	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				return
+			case <-ticker.C:
+				if n, err := locationService.PruneStale(cleanupCtx); err != nil && cleanupCtx.Err() == nil {
+					lg.Warn("failed to prune stale drivers", zap.Error(err))
+				} else if n > 0 {
+					lg.Debug("pruned stale drivers", zap.Int("count", n))
+				}
+			}
+		}
+	}()
+
 	r := chi.NewRouter()
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +99,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	<-stop
+	stopCleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -2,8 +2,11 @@ package location
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -66,17 +69,31 @@ return 1
 //
 //	KEYS[1] drivers:geo, KEYS[2] drivers:last_seen
 //	ARGV[1] cutoff in unix ms, ARGV[2..] driver IDs
+//
+// Returns how many drivers it removed.
 var pruneStale = redis.NewScript(`
 local cutoff = tonumber(ARGV[1])
+local removed = 0
 for i = 2, #ARGV do
   local seen = redis.call('ZSCORE', KEYS[2], ARGV[i])
   if not seen or tonumber(seen) < cutoff then
     redis.call('ZREM', KEYS[1], ARGV[i])
     redis.call('ZREM', KEYS[2], ARGV[i])
+    removed = removed + 1
   end
 end
-return 0
+return removed
 `)
+
+// prunedTotal counts stale drivers and expired offline markers removed, by searches and by the cleanup job.
+var prunedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "location_stale_pruned_total",
+	Help: "Stale drivers and expired offline markers removed from Redis.",
+})
+
+// pruneBatch caps how many drivers one PruneStale round sends to the script, keeping each script call short:
+// Redis runs nothing else while a script runs.
+const pruneBatch = 1000
 
 // maxNearbyCandidates caps how many entries one search reads from Redis while skipping stale drivers.
 const maxNearbyCandidates = 500
@@ -167,7 +184,7 @@ func (r *LocationRepository) FindNearby(ctx context.Context, center Location, ra
 		}
 
 		if len(stale) > 0 {
-			if err := pruneStale.Run(ctx, r.RDB, []string{geoKey, lastSeenKey}, append([]any{cutoff}, stale...)...).Err(); err != nil {
+			if _, err := r.prune(ctx, cutoff, stale); err != nil {
 				return nil, err
 			}
 		}
@@ -178,4 +195,39 @@ func (r *LocationRepository) FindNearby(ctx context.Context, center Location, ra
 		}
 		count = min(count*4, maxNearbyCandidates)
 	}
+}
+
+// PruneStale removes every driver last seen before cutoff, including expired offline markers, which searches
+// never reach: offline drivers are not in geoKey, and stale drivers may sit where nobody searches.
+func (r *LocationRepository) PruneStale(ctx context.Context, cutoff time.Time) (int, error) {
+	total := 0
+	for {
+		ids, err := r.RDB.ZRangeArgs(ctx, redis.ZRangeArgs{
+			Key:     lastSeenKey,
+			Start:   "-inf",
+			Stop:    fmt.Sprintf("(%d", cutoff.UnixMilli()),
+			ByScore: true,
+			Count:   pruneBatch,
+		}).Result()
+		if err != nil || len(ids) == 0 {
+			return total, err
+		}
+
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = id
+		}
+		removed, err := r.prune(ctx, cutoff.UnixMilli(), args)
+		total += removed
+		// removed == 0 means every listed driver refreshed in between; their new scores are past the cutoff.
+		if err != nil || removed == 0 || len(ids) < pruneBatch {
+			return total, err
+		}
+	}
+}
+
+func (r *LocationRepository) prune(ctx context.Context, cutoff int64, ids []any) (int, error) {
+	removed, err := pruneStale.Run(ctx, r.RDB, []string{geoKey, lastSeenKey}, append([]any{cutoff}, ids...)...).Int()
+	prunedTotal.Add(float64(removed))
+	return removed, err
 }

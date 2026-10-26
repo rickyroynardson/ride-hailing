@@ -244,6 +244,28 @@ func TestIntegration(t *testing.T) {
 	if pos, _ := rdb.GeoPos(ctx, "drivers:geo", "near-500").Result(); pos[0] == nil {
 		t.Fatal("fresh driver near-500 was pruned")
 	}
+
+	// The cleanup job removes what searches never reach: stale drivers where nobody searched, and expired
+	// offline markers. Fresh drivers and recent offline markers stay.
+	put("stale-unsearched", 50000, stale)
+	rdb.ZAdd(ctx, "drivers:last_seen", redis.Z{Score: float64(stale.UnixMilli()), Member: "old-offline-marker"})
+	rdb.ZAdd(ctx, "drivers:last_seen", redis.Z{Score: float64(fresh.UnixMilli()), Member: "recent-offline-marker"})
+	if _, err := location.NewService(location.NewRepository(rdb)).PruneStale(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"stale-unsearched", "old-offline-marker", "stale-close-0", "stale-close-4"} {
+		if _, err := rdb.ZScore(ctx, "drivers:last_seen", id).Result(); err != redis.Nil {
+			t.Fatalf("cleanup: %s still in drivers:last_seen", id)
+		}
+		if pos, _ := rdb.GeoPos(ctx, "drivers:geo", id).Result(); pos[0] != nil {
+			t.Fatalf("cleanup: %s still in drivers:geo", id)
+		}
+	}
+	for _, id := range []string{"near-500", "near-1000", "far-20000", "recent-offline-marker"} {
+		if _, err := rdb.ZScore(ctx, "drivers:last_seen", id).Result(); err != nil {
+			t.Fatalf("cleanup removed %s: %v", id, err)
+		}
+	}
 }
 
 func startServer(t *testing.T, rdb *redis.Client) locationv1.LocationServiceClient {

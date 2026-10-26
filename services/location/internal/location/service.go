@@ -56,3 +56,8 @@ func (s *LocationService) ListNearbyDrivers(ctx context.Context, in ListNearbyIn
 
 	return s.repository.FindNearby(ctx, *in.Location, in.RadiusMeters, in.Limit, time.Now().Add(-staleAfter))
 }
+
+// PruneStale removes drivers who went stale without calling GoOffline, plus expired offline markers.
+func (s *LocationService) PruneStale(ctx context.Context) (int, error) {
+	return s.repository.PruneStale(ctx, time.Now().Add(-staleAfter))
+}
