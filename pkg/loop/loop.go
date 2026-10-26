@@ -1,4 +1,4 @@
-package main
+package loop
 
 import (
 	"context"
@@ -7,14 +7,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// loopReminderEvery is how often a loop that keeps failing logs again; in between it stays quiet.
-const loopReminderEvery = time.Minute
+// reminderEvery is how often a loop that keeps failing logs again; in between it stays quiet.
+const reminderEvery = time.Minute
 
-// runLoop calls fn every interval until ctx is done. While fn keeps failing it backs off, doubling the wait up to
-// maxWait, and logs only state changes: the first failure, a reminder every loopReminderEvery, and the recovery.
+// Run calls fn every interval until ctx is done. While fn keeps failing it backs off, doubling the wait up to
+// maxWait, and logs only state changes: the first failure, a reminder every reminderEvery, and the recovery.
 // A loop failing every second would otherwise log 3,600 identical warnings an hour.
-// ponytail: copied in services/{matching,location}/cmd; keep the copies identical
-func runLoop(ctx context.Context, lg *zap.Logger, name string, interval, maxWait time.Duration, fn func(context.Context) error) {
+func Run(ctx context.Context, lg *zap.Logger, name string, interval, maxWait time.Duration, fn func(context.Context) error) {
 	wait := interval
 	var failingSince, lastLog time.Time
 	timer := time.NewTimer(wait)
@@ -44,7 +43,7 @@ func runLoop(ctx context.Context, lg *zap.Logger, name string, interval, maxWait
 			lg.Warn(name+" failing", zap.Error(err))
 			wait = min(wait*2, maxWait)
 		default:
-			if now.Sub(lastLog) >= loopReminderEvery {
+			if now.Sub(lastLog) >= reminderEvery {
 				lastLog = now
 				lg.Warn(name+" still failing", zap.Error(err), zap.Duration("failing_for", now.Sub(failingSince)))
 			}

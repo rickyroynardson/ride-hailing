@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
+
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -34,7 +36,7 @@ func (s *MatchingServer) StartMatching(ctx context.Context, req *matchingv1.Star
 // The driver RPCs need the driver claim: only approved drivers get offers.
 
 func (s *MatchingServer) GetOffer(ctx context.Context, _ *matchingv1.GetOfferRequest) (*matchingv1.GetOfferResponse, error) {
-	caller := callerFromContext(ctx)
+	caller := grpcserver.CallerFrom(ctx)
 	if !caller.Driver {
 		return nil, matching.ErrNotDriver
 	}
@@ -52,7 +54,7 @@ func (s *MatchingServer) GetOffer(ctx context.Context, _ *matchingv1.GetOfferReq
 }
 
 func (s *MatchingServer) AcceptOffer(ctx context.Context, req *matchingv1.AcceptOfferRequest) (*matchingv1.AcceptOfferResponse, error) {
-	caller := callerFromContext(ctx)
+	caller := grpcserver.CallerFrom(ctx)
 	if !caller.Driver {
 		return nil, matching.ErrNotDriver
 	}
@@ -65,7 +67,7 @@ func (s *MatchingServer) AcceptOffer(ctx context.Context, req *matchingv1.Accept
 }
 
 func (s *MatchingServer) DeclineOffer(ctx context.Context, req *matchingv1.DeclineOfferRequest) (*matchingv1.DeclineOfferResponse, error) {
-	caller := callerFromContext(ctx)
+	caller := grpcserver.CallerFrom(ctx)
 	if !caller.Driver {
 		return nil, matching.ErrNotDriver
 	}

@@ -12,7 +12,6 @@ var (
 	ErrUserExists   = errors.New("email or phone already registered")
 	ErrInvalidCreds = errors.New("invalid email or password")
 	ErrInvalidToken = errors.New("invalid or expired refresh token")
-	ErrInvalidAuth  = errors.New("invalid or missing access token")
 )
 
 type Tokens struct {

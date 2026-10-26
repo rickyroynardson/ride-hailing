@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
@@ -188,14 +188,14 @@ func decodePayload(tok string, v any) {
 	}
 }
 
-// serviceToken signs a short-lived service token, like the services' ServiceCredentials, for internal RPCs the
-// console triggers by hand.
+// serviceToken signs a service token through pkg/jwtauth, the same way the services sign theirs, for internal RPCs
+// the console triggers by hand.
 func (c *console) serviceToken() (string, error) {
-	now := time.Now()
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"svc": systemActor, "sub": "service:" + systemActor,
-		"iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
-	}).SignedString(c.jwtSecret)
+	md, err := jwtauth.NewServiceCredentials(systemActor, string(c.jwtSecret)).GetRequestMetadata(context.Background())
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(md["authorization"], "Bearer "), nil
 }
 
 func (c *console) actor(id string) (*actor, error) {

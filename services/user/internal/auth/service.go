@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -111,29 +111,6 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	return err
 }
 
-// accessClaims marks approved drivers so other services can authorize driver actions without calling this one.
-// A suspension takes effect once the current access token expires.
-// Service is set only on service tokens, which other services sign for each other; the user service has no
-// internal RPCs, so it rejects them. Keep in sync with claims in services/{ride,location,matching}/internal/auth.
-type accessClaims struct {
-	Driver  bool   `json:"driver,omitempty"`
-	Service string `json:"svc,omitempty"`
-	jwt.RegisteredClaims
-}
-
-func (s *AuthService) VerifyAccessToken(token string) (string, error) {
-	var claims accessClaims
-
-	_, err := jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) {
-		return []byte(s.jwtSecret), nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
-	if err != nil || claims.Subject == "" || claims.Service != "" {
-		return "", ErrInvalidAuth
-	}
-
-	return claims.Subject, nil
-}
-
 func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, error) {
 	now := time.Now()
 
@@ -142,7 +119,7 @@ func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, e
 		return Tokens{}, err
 	}
 
-	access, err := s.signAccessToken(userID, driver, now)
+	access, err := jwtauth.SignUser(s.jwtSecret, userID, driver, now, accessTokenTTL)
 	if err != nil {
 		return Tokens{}, err
 	}
@@ -156,17 +133,6 @@ func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, e
 	}
 
 	return Tokens{Access: access, Refresh: refresh}, nil
-}
-
-func (s *AuthService) signAccessToken(userID string, driver bool, now time.Time) (string, error) {
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims{
-		Driver: driver,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(accessTokenTTL)),
-		},
-	}).SignedString([]byte(s.jwtSecret))
 }
 
 func hashToken(token string) string {

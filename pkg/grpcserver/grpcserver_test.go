@@ -1,4 +1,4 @@
-package server
+package grpcserver
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/rickyroynardson/ride-hailing/services/location/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,7 +17,13 @@ import (
 )
 
 func TestLoggingInterceptor(t *testing.T) {
-	intercept := loggingInterceptor(zap.NewNop())
+	domain := func(err error) (codes.Code, bool) {
+		if err.Error() == "no such ride" {
+			return codes.NotFound, true
+		}
+		return 0, false
+	}
+	intercept := Logging(zap.NewNop(), domain)
 	info := &grpc.UnaryServerInfo{FullMethod: "/test/Method"}
 
 	cases := map[string]struct {
@@ -26,7 +32,8 @@ func TestLoggingInterceptor(t *testing.T) {
 		msg     string
 	}{
 		"ok":           {func(context.Context, any) (any, error) { return "res", nil }, codes.OK, ""},
-		"domain error": {func(context.Context, any) (any, error) { return nil, auth.ErrInvalidAuth }, codes.Unauthenticated, auth.ErrInvalidAuth.Error()},
+		"shared error": {func(context.Context, any) (any, error) { return nil, jwtauth.ErrInvalidAuth }, codes.Unauthenticated, jwtauth.ErrInvalidAuth.Error()},
+		"domain error": {func(context.Context, any) (any, error) { return nil, errors.New("no such ride") }, codes.NotFound, "no such ride"},
 		"status error": {func(context.Context, any) (any, error) { return nil, status.Error(codes.NotFound, "x") }, codes.NotFound, "x"},
 		"canceled":     {func(context.Context, any) (any, error) { return nil, fmt.Errorf("query: %w", context.Canceled) }, codes.Canceled, ""},
 		"hidden cause": {func(context.Context, any) (any, error) { return nil, errors.New("db password leaked") }, codes.Internal, "internal error"},
@@ -42,21 +49,22 @@ func TestLoggingInterceptor(t *testing.T) {
 
 func TestAuthInterceptor(t *testing.T) {
 	const secret = "secret"
-	intercept := authInterceptor(auth.NewVerifier(secret), map[string]access{
-		"/test/Internal": servicesOnly,
-		"/test/Shared":   usersOrServices,
+	intercept := Auth(jwtauth.NewVerifier(secret), map[string]Access{
+		"/test/Internal": ServicesOnly,
+		"/test/Shared":   UsersOrServices,
+		"/test/Login":    Public,
 	})
-	md, err := auth.NewServiceCredentials("matching", secret).GetRequestMetadata(context.Background())
+	md, err := jwtauth.NewServiceCredentials("matching", secret).GetRequestMetadata(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	serviceToken := md["authorization"]
 	userToken := "Bearer " + signUserToken(t, secret, "u1")
 
-	var got auth.Caller
-	handler := func(ctx context.Context, _ any) (any, error) { got = callerFromContext(ctx); return nil, nil }
+	var got jwtauth.Caller
+	handler := func(ctx context.Context, _ any) (any, error) { got = CallerFrom(ctx); return nil, nil }
 	call := func(method, authorization string) error {
-		got = auth.Caller{}
+		got = jwtauth.Caller{}
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", authorization))
 		_, err := intercept(ctx, nil, &grpc.UnaryServerInfo{FullMethod: method}, handler)
 		return err
@@ -65,16 +73,18 @@ func TestAuthInterceptor(t *testing.T) {
 	cases := []struct {
 		method, token string
 		wantErr       error
-		want          auth.Caller
+		want          jwtauth.Caller
 	}{
-		{"/test/Public", userToken, nil, auth.Caller{UserID: "u1"}},
-		{"/test/Public", serviceToken, auth.ErrWrongCaller, auth.Caller{}},
-		{"/test/Internal", serviceToken, nil, auth.Caller{Service: "matching"}},
-		{"/test/Internal", userToken, auth.ErrWrongCaller, auth.Caller{}},
-		{"/test/Shared", userToken, nil, auth.Caller{UserID: "u1"}},
-		{"/test/Shared", serviceToken, nil, auth.Caller{Service: "matching"}},
-		{"/test/Public", "Bearer garbage", auth.ErrInvalidAuth, auth.Caller{}},
-		{"/test/Public", "", auth.ErrInvalidAuth, auth.Caller{}},
+		{"/test/Public", userToken, nil, jwtauth.Caller{UserID: "u1"}},
+		{"/test/Public", serviceToken, jwtauth.ErrWrongCaller, jwtauth.Caller{}},
+		{"/test/Internal", serviceToken, nil, jwtauth.Caller{Service: "matching"}},
+		{"/test/Internal", userToken, jwtauth.ErrWrongCaller, jwtauth.Caller{}},
+		{"/test/Shared", userToken, nil, jwtauth.Caller{UserID: "u1"}},
+		{"/test/Shared", serviceToken, nil, jwtauth.Caller{Service: "matching"}},
+		{"/test/Login", "", nil, jwtauth.Caller{}},
+		{"/test/Login", "Bearer garbage", nil, jwtauth.Caller{}},
+		{"/test/Public", "Bearer garbage", jwtauth.ErrInvalidAuth, jwtauth.Caller{}},
+		{"/test/Public", "", jwtauth.ErrInvalidAuth, jwtauth.Caller{}},
 	}
 	for _, c := range cases {
 		if err := call(c.method, c.token); !errors.Is(err, c.wantErr) || got != c.want {

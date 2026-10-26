@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
@@ -53,11 +55,11 @@ func TestIntegration(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	// The startup check refuses an unmigrated database and accepts a migrated one.
-	if err := database.CheckSchema(ctx, pool); !errors.Is(err, database.ErrNotMigrated) {
+	if err := postgres.CheckSchema(ctx, pool, database.SchemaVersion); !errors.Is(err, postgres.ErrNotMigrated) {
 		t.Fatalf("schema check before migrating: got %v, want ErrNotMigrated", err)
 	}
 	migrate(t, url)
-	if err := database.CheckSchema(ctx, pool); err != nil {
+	if err := postgres.CheckSchema(ctx, pool, database.SchemaVersion); err != nil {
 		t.Fatalf("schema check after migrating: %v", err)
 	}
 
@@ -171,7 +173,7 @@ func migrate(t *testing.T, url string) {
 
 func startServer(t *testing.T, pool *pgxpool.Pool) (userv1.AuthServiceClient, userv1.UserServiceClient) {
 	t.Helper()
-	gs := server.NewGRPCServer(zap.NewNop(),
+	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier("test-secret"),
 		auth.NewService(auth.NewRepository(pool), "test-secret"),
 		user.NewService(user.NewRepository(pool)),
 	)

@@ -1,0 +1,34 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var ErrNotMigrated = errors.New("database not migrated")
+
+// CheckSchema fails unless goose migration version is applied, so a service refuses to start against a database
+// it can't use instead of failing every request. Migrations stay a manual step; this only checks them.
+func CheckSchema(ctx context.Context, pool *pgxpool.Pool, version int64) error {
+	var applied bool
+	err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM goose_db_version WHERE version_id = $1 AND is_applied)`, version,
+	).Scan(&applied)
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		// goose_db_version doesn't exist: goose has never run against this database.
+		return fmt.Errorf("%w: no migrations applied", ErrNotMigrated)
+	}
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return fmt.Errorf("%w: migration %d not applied", ErrNotMigrated, version)
+	}
+	return nil
+}

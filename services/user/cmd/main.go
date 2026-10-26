@@ -12,10 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/logger"
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
-	"github.com/rickyroynardson/ride-hailing/services/user/internal/logger"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/server"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 	"go.uber.org/zap"
@@ -35,7 +37,7 @@ func main() {
 
 	ctx := context.Background()
 
-	dbpool, err := database.ConnectPgx(ctx, cfg.PostgresURL)
+	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
 		lg.Fatal("failed to connect postgres", zap.Error(err))
 	}
@@ -44,11 +46,11 @@ func main() {
 	if err := dbpool.Ping(ctx); err != nil {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
-	if err := database.CheckSchema(ctx, dbpool); err != nil {
+	if err := postgres.CheckSchema(ctx, dbpool, database.SchemaVersion); err != nil {
 		lg.Fatal("refusing to start", zap.Error(err),
 			zap.String("fix", `goose -dir services/user/migrations postgres "<postgres_url>" up`))
 	}
-	database.RegisterPoolMetrics(dbpool)
+	postgres.RegisterPoolMetrics(dbpool)
 
 	authRepo := auth.NewRepository(dbpool)
 	authService := auth.NewService(authRepo, cfg.JWTSecret)
@@ -56,7 +58,7 @@ func main() {
 	userRepo := user.NewRepository(dbpool)
 	userService := user.NewService(userRepo)
 
-	gs := server.NewGRPCServer(lg, authService, userService)
+	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), authService, userService)
 
 	r := chi.NewRouter()
 

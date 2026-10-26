@@ -3,6 +3,8 @@ package server
 import (
 	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
@@ -11,14 +13,22 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-func NewGRPCServer(lg *zap.Logger, authService *auth.AuthService, userService *user.UserService) *grpc.Server {
+// methodAccess: sign-up and session RPCs are public, everything else needs a user token.
+var methodAccess = map[string]grpcserver.Access{
+	"/user.v1.AuthService/Register": grpcserver.Public,
+	"/user.v1.AuthService/Login":    grpcserver.Public,
+	"/user.v1.AuthService/Refresh":  grpcserver.Public,
+	"/user.v1.AuthService/Logout":   grpcserver.Public,
+}
+
+func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, authService *auth.AuthService, userService *user.UserService) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
 	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
-		loggingInterceptor(lg),
-		authInterceptor(authService),
+		grpcserver.Logging(lg, errorCodes),
+		grpcserver.Auth(verifier, methodAccess),
 	))
 
 	userv1.RegisterAuthServiceServer(gs, NewAuthServer(authService))

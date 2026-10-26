@@ -12,11 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rickyroynardson/ride-hailing/services/location/internal/auth"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/logger"
+	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/location"
-	"github.com/rickyroynardson/ride-hailing/services/location/internal/logger"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/server"
 	"go.uber.org/zap"
 )
@@ -44,11 +45,11 @@ func main() {
 	locationRepo := location.NewRepository(rdb)
 	locationService := location.NewService(locationRepo)
 
-	gs := server.NewGRPCServer(lg, auth.NewVerifier(cfg.JWTSecret), locationService)
+	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), locationService)
 
 	// Every replica runs this; that is harmless, since pruning re-checks each driver and is idempotent.
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
-	go runLoop(cleanupCtx, lg, "stale driver cleanup", time.Minute, 5*time.Minute, func(ctx context.Context) error {
+	go loop.Run(cleanupCtx, lg, "stale driver cleanup", time.Minute, 5*time.Minute, func(ctx context.Context) error {
 		n, err := locationService.PruneStale(ctx)
 		if n > 0 {
 			lg.Debug("pruned stale drivers", zap.Int("count", n))

@@ -1,4 +1,4 @@
-package auth
+package jwtauth
 
 import (
 	"context"
@@ -68,5 +68,21 @@ func TestServiceCredentials(t *testing.T) {
 	}
 	if _, err := NewVerifier("other").Verify(tok); !errors.Is(err, ErrInvalidAuth) {
 		t.Fatalf("other secret: expected ErrInvalidAuth, got %v", err)
+	}
+}
+
+func TestSignUser(t *testing.T) {
+	for _, driver := range []bool{true, false} {
+		tok, err := SignUser("secret", "u1", driver, time.Now(), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c, err := NewVerifier("secret").Verify(tok); err != nil || c != (Caller{UserID: "u1", Driver: driver}) {
+			t.Fatalf("driver=%v: got %+v, %v", driver, c, err)
+		}
+	}
+	expired, _ := SignUser("secret", "u1", false, time.Now().Add(-2*time.Minute), time.Minute)
+	if _, err := NewVerifier("secret").Verify(expired); !errors.Is(err, ErrInvalidAuth) {
+		t.Fatalf("expired user token: expected ErrInvalidAuth, got %v", err)
 	}
 }

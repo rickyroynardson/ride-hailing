@@ -1,4 +1,4 @@
-package main
+package loop
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestRunLoop(t *testing.T) {
+func TestRun(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -20,7 +20,7 @@ func TestRunLoop(t *testing.T) {
 	var calls atomic.Int32
 	done := make(chan struct{})
 	go func() {
-		runLoop(ctx, zap.New(core), "test loop", time.Millisecond, 4*time.Millisecond, func(context.Context) error {
+		Run(ctx, zap.New(core), "test loop", time.Millisecond, 4*time.Millisecond, func(context.Context) error {
 			n := calls.Add(1)
 			if n == 8 {
 				cancel()

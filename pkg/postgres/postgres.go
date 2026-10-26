@@ -1,4 +1,4 @@
-package database
+package postgres
 
 import (
 	"context"
@@ -7,7 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func ConnectPgx(ctx context.Context, url string) (*pgxpool.Pool, error) {
+// Connect opens a pool with the services' shared pool settings.
+func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	c, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, err

@@ -1,4 +1,6 @@
-package server
+// Package grpcserver holds the interceptors every service runs: logging with panic recovery and one place that
+// turns errors into gRPC statuses, and authentication with per-method rules for who may call.
+package grpcserver
 
 import (
 	"context"
@@ -6,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rickyroynardson/ride-hailing/services/matching/internal/auth"
-	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
@@ -16,9 +17,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// loggingInterceptor maps domain errors to gRPC statuses in one place, logs every RPC with the real cause of
-// Internal errors, and recovers panics, which grpc-go would otherwise let crash the whole process.
-func loggingInterceptor(lg *zap.Logger) grpc.UnaryServerInterceptor {
+// ErrorCodes maps a service's domain errors to gRPC codes; the error's message is sent with the code. Return false
+// for errors it doesn't know, and they become a generic Internal.
+type ErrorCodes func(error) (codes.Code, bool)
+
+// Logging converts errors to gRPC statuses in one place, logs every RPC with the real cause of Internal errors,
+// and recovers panics, which grpc-go would otherwise let crash the whole process.
+func Logging(lg *zap.Logger, domain ErrorCodes) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		start := time.Now()
 		method := zap.String("method", info.FullMethod)
@@ -31,7 +36,7 @@ func loggingInterceptor(lg *zap.Logger) grpc.UnaryServerInterceptor {
 		}()
 
 		resp, err = handler(ctx, req)
-		st := toStatus(err)
+		st := toStatus(err, domain)
 
 		code := status.Code(st)
 		fields := []zap.Field{method, zap.String("code", code.String()), zap.Duration("duration", time.Since(start))}
@@ -59,8 +64,9 @@ func codeLevel(code codes.Code) zapcore.Level {
 	}
 }
 
-// toStatus passes nil and existing statuses through and hides unknown errors behind a generic Internal.
-func toStatus(err error) error {
+// toStatus passes nil and existing statuses through, maps shared and domain errors, and hides unknown errors
+// behind a generic Internal.
+func toStatus(err error, domain ErrorCodes) error {
 	if _, ok := status.FromError(err); ok {
 		return err
 	}
@@ -70,59 +76,61 @@ func toStatus(err error) error {
 		return status.Error(codes.Canceled, "request canceled")
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, "deadline exceeded")
-	case errors.Is(err, auth.ErrInvalidAuth):
+	case errors.Is(err, jwtauth.ErrInvalidAuth):
 		return status.Error(codes.Unauthenticated, err.Error())
-	case errors.Is(err, auth.ErrWrongCaller):
+	case errors.Is(err, jwtauth.ErrWrongCaller):
 		return status.Error(codes.PermissionDenied, err.Error())
-	case errors.Is(err, matching.ErrInvalidInput):
-		return status.Error(codes.InvalidArgument, err.Error())
-	case errors.Is(err, matching.ErrNotDriver):
-		return status.Error(codes.PermissionDenied, err.Error())
-	case errors.Is(err, matching.ErrOfferUnavailable):
-		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, matching.ErrAssignPending):
-		return status.Error(codes.Unavailable, matching.ErrAssignPending.Error())
-	default:
-		return status.Error(codes.Internal, "internal error")
 	}
+	if domain != nil {
+		if code, ok := domain(err); ok {
+			return status.Error(code, err.Error())
+		}
+	}
+	return status.Error(codes.Internal, "internal error")
 }
+
+// Access says who may call a method. Methods missing from a service's access map are UsersOnly.
+type Access int
+
+const (
+	UsersOnly Access = iota
+	ServicesOnly
+	UsersOrServices
+	// Public needs no token, e.g. login and registration.
+	Public
+)
 
 type callerKey struct{}
 
-// access says who may call a method. Methods missing from a service's access map are usersOnly.
-type access int
-
-const (
-	usersOnly access = iota
-	servicesOnly
-	usersOrServices
-)
-
-// authInterceptor requires a valid user or service token on every RPC, and that the kind of caller is allowed
-// on the method: users can't reach internal RPCs, and a leaked service token can't act as a user.
-func authInterceptor(verifier *auth.Verifier, methodAccess map[string]access) grpc.UnaryServerInterceptor {
+// Auth requires a valid user or service token on every non-public RPC, and that the kind of caller is allowed on
+// the method: users can't reach internal RPCs, and a leaked service token can't act as a user.
+func Auth(verifier *jwtauth.Verifier, methodAccess map[string]Access) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		a := methodAccess[info.FullMethod]
+		if a == Public {
+			return handler(ctx, req)
+		}
+
 		md, _ := metadata.FromIncomingContext(ctx)
 		token, ok := strings.CutPrefix(strings.Join(md.Get("authorization"), ""), "Bearer ")
 		if !ok {
-			return nil, auth.ErrInvalidAuth
+			return nil, jwtauth.ErrInvalidAuth
 		}
 
 		caller, err := verifier.Verify(token)
 		if err != nil {
 			return nil, err
 		}
-
-		switch a := methodAccess[info.FullMethod]; {
-		case caller.Service != "" && a == usersOnly, caller.Service == "" && a == servicesOnly:
-			return nil, auth.ErrWrongCaller
+		if (caller.Service != "" && a == UsersOnly) || (caller.Service == "" && a == ServicesOnly) {
+			return nil, jwtauth.ErrWrongCaller
 		}
 
 		return handler(context.WithValue(ctx, callerKey{}, caller), req)
 	}
 }
 
-func callerFromContext(ctx context.Context) auth.Caller {
-	c, _ := ctx.Value(callerKey{}).(auth.Caller)
+// CallerFrom returns who is behind the request, as set by Auth; empty on public methods.
+func CallerFrom(ctx context.Context) jwtauth.Caller {
+	c, _ := ctx.Value(callerKey{}).(jwtauth.Caller)
 	return c
 }

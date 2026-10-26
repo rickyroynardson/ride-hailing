@@ -10,6 +10,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/redis/go-redis/v9 v9.23.0
+	github.com/rickyroynardson/ride-hailing/pkg v0.0.0-00010101000000-000000000000
 	github.com/rickyroynardson/ride-hailing/proto v0.0.0-00010101000000-000000000000
 	github.com/spf13/viper v1.21.0
 	github.com/testcontainers/testcontainers-go v0.44.0
@@ -90,3 +91,5 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
+
+replace github.com/rickyroynardson/ride-hailing/pkg => ../../pkg

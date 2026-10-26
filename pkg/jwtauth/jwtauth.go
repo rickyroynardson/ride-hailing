@@ -1,4 +1,6 @@
-package auth
+// Package jwtauth is the access-token contract between services: the user service signs user tokens, services sign
+// short-lived service tokens for each other, and every service verifies both.
+package jwtauth
 
 import (
 	"context"
@@ -21,8 +23,9 @@ type Caller struct {
 	Service string
 }
 
-// claims mirrors the user service's access token claims, plus Service for service tokens.
-// note: copied in services/{ride,location,matching}; keep the copies identical
+// claims is the token payload. Driver is set for approved drivers; Service only on service tokens.
+// Services roll out one at a time, so changes must stay backward compatible: add claims before relying on them,
+// never rename or repurpose one.
 type claims struct {
 	Driver  bool   `json:"driver,omitempty"`
 	Service string `json:"svc,omitempty"`
@@ -54,6 +57,18 @@ func (v *Verifier) Verify(token string) (Caller, error) {
 	}
 
 	return Caller{UserID: c.Subject, Driver: c.Driver}, nil
+}
+
+// SignUser signs a user access token; the user service is the only caller.
+func SignUser(secret, userID string, driver bool, now time.Time, ttl time.Duration) (string, error) {
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims{
+		Driver: driver,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
+	}).SignedString([]byte(secret))
 }
 
 // serviceTokenTTL is short because a fresh token is signed for every call.

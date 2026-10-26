@@ -15,10 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
-	"github.com/rickyroynardson/ride-hailing/services/matching/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/server"
@@ -120,11 +121,11 @@ func TestIntegration(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	// The startup check refuses an unmigrated database and accepts a migrated one.
-	if err := database.CheckSchema(ctx, pool); !errors.Is(err, database.ErrNotMigrated) {
+	if err := postgres.CheckSchema(ctx, pool, database.SchemaVersion); !errors.Is(err, postgres.ErrNotMigrated) {
 		t.Fatalf("schema check before migrating: got %v, want ErrNotMigrated", err)
 	}
 	migrate(t, url)
-	if err := database.CheckSchema(ctx, pool); err != nil {
+	if err := postgres.CheckSchema(ctx, pool, database.SchemaVersion); err != nil {
 		t.Fatalf("schema check after migrating: %v", err)
 	}
 
@@ -463,7 +464,7 @@ func migrate(t *testing.T, url string) {
 
 func startServer(t *testing.T, pool *pgxpool.Pool, location locationv1.LocationServiceClient, ride ridev1.RideServiceClient) matchingv1.MatchingServiceClient {
 	t.Helper()
-	gs := server.NewGRPCServer(zap.NewNop(), auth.NewVerifier(testSecret), matching.NewService(matching.NewRepository(pool), location, ride))
+	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier(testSecret), matching.NewService(matching.NewRepository(pool), location, ride))
 	lis := bufconn.Listen(1 << 20)
 	go gs.Serve(lis)
 	t.Cleanup(gs.Stop)
@@ -483,7 +484,7 @@ func startServer(t *testing.T, pool *pgxpool.Pool, location locationv1.LocationS
 // withServiceToken attaches a service token the way ServiceCredentials does for the ride service's calls.
 func withServiceToken(t *testing.T, ctx context.Context) context.Context {
 	t.Helper()
-	md, err := auth.NewServiceCredentials("ride", testSecret).GetRequestMetadata(ctx)
+	md, err := jwtauth.NewServiceCredentials("ride", testSecret).GetRequestMetadata(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

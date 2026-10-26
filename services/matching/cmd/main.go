@@ -12,12 +12,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/logger"
+	"github.com/rickyroynardson/ride-hailing/pkg/loop"
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
-	"github.com/rickyroynardson/ride-hailing/services/matching/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/database"
-	"github.com/rickyroynardson/ride-hailing/services/matching/internal/logger"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/server"
 	"go.uber.org/zap"
@@ -39,7 +41,7 @@ func main() {
 
 	ctx := context.Background()
 
-	dbpool, err := database.ConnectPgx(ctx, cfg.PostgresURL)
+	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
 		lg.Fatal("failed to connect postgres", zap.Error(err))
 	}
@@ -48,17 +50,17 @@ func main() {
 	if err := dbpool.Ping(ctx); err != nil {
 		lg.Fatal("failed to ping postgres", zap.Error(err))
 	}
-	if err := database.CheckSchema(ctx, dbpool); err != nil {
+	if err := postgres.CheckSchema(ctx, dbpool, database.SchemaVersion); err != nil {
 		lg.Fatal("refusing to start", zap.Error(err),
 			zap.String("fix", `goose -dir services/matching/migrations postgres "<postgres_url>" up`))
 	}
-	database.RegisterPoolMetrics(dbpool)
+	postgres.RegisterPoolMetrics(dbpool)
 
 	// Calls to other services carry a fresh service token each time. grpc.NewClient connects lazily, so
 	// matching starts even if location or ride is not up yet.
 	clientOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(auth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
 	}
 	locationConn, err := grpc.NewClient(cfg.LocationAddr, clientOpts...)
 	if err != nil {
@@ -74,12 +76,12 @@ func main() {
 	matchingRepo := matching.NewRepository(dbpool)
 	matchingService := matching.NewService(matchingRepo, locationv1.NewLocationServiceClient(locationConn), ridev1.NewRideServiceClient(rideConn))
 
-	gs := server.NewGRPCServer(lg, auth.NewVerifier(cfg.JWTSecret), matchingService)
+	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), matchingService)
 
 	// Every replica runs this; that is safe, since expiry, giving up and offer creation are each guarded by a
 	// single SQL statement or a unique index.
 	tickCtx, stopTick := context.WithCancel(context.Background())
-	go runLoop(tickCtx, lg, "matching tick", time.Second, 30*time.Second, matchingService.Tick)
+	go loop.Run(tickCtx, lg, "matching tick", time.Second, 30*time.Second, matchingService.Tick)
 
 	r := chi.NewRouter()
 

@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
+
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/user"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,7 +20,7 @@ func NewUserServer(service *user.UserService) *UserServer {
 }
 
 func (s *UserServer) GetMe(ctx context.Context, _ *userv1.GetMeRequest) (*userv1.GetMeResponse, error) {
-	u, driver, err := s.service.GetMe(ctx, userIDFromContext(ctx))
+	u, driver, err := s.service.GetMe(ctx, grpcserver.CallerFrom(ctx).UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +33,7 @@ func (s *UserServer) GetMe(ctx context.Context, _ *userv1.GetMeRequest) (*userv1
 }
 
 func (s *UserServer) RegisterDriver(ctx context.Context, req *userv1.RegisterDriverRequest) (*userv1.RegisterDriverResponse, error) {
-	driver, err := s.service.RegisterDriver(ctx, userIDFromContext(ctx), user.RegisterDriverInput{
+	driver, err := s.service.RegisterDriver(ctx, grpcserver.CallerFrom(ctx).UserID, user.RegisterDriverInput{
 		LicenseNumber: req.GetLicenseNumber(),
 		VehiclePlate:  req.GetVehiclePlate(),
 		VehicleModel:  req.GetVehicleModel(),

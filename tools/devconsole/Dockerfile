@@ -4,12 +4,14 @@ FROM golang:1.27-alpine AS builder
 WORKDIR /src
 
 COPY proto/go.mod proto/go.sum ./proto/
+COPY pkg/go.mod pkg/go.sum ./pkg/
 COPY tools/devconsole/go.mod tools/devconsole/go.sum ./tools/devconsole/
 
 WORKDIR /src/tools/devconsole
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY proto /src/proto
+COPY pkg /src/pkg
 COPY tools/devconsole /src/tools/devconsole
 
 # Module and build caches persist across builds and are shared by every service image, so dependencies

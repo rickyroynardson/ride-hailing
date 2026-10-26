@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
+
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/ride"
 )
@@ -18,7 +20,7 @@ func NewRideServer(service *ride.RideService) *RideServer {
 
 func (s *RideServer) CreateRide(ctx context.Context, req *ridev1.CreateRideRequest) (*ridev1.CreateRideResponse, error) {
 	id, err := s.service.CreateRide(ctx, ride.CreateRideInput{
-		RiderID: callerFromContext(ctx).UserID,
+		RiderID: grpcserver.CallerFrom(ctx).UserID,
 		Pickup:  toLocation(req.GetPickup()),
 		Dropoff: toLocation(req.GetDropoff()),
 	})

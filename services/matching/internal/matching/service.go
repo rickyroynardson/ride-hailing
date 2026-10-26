@@ -143,7 +143,12 @@ func (s *MatchingService) AcceptOffer(ctx context.Context, offerID, driverID str
 	if err != nil {
 		return "", err
 	}
-	return rideID, s.confirm(ctx, Offer{ID: offerID, RideID: rideID, DriverID: driverID})
+	err = s.confirm(ctx, Offer{ID: offerID, RideID: rideID, DriverID: driverID})
+	if errors.Is(err, ErrAssignPending) {
+		// The wrapped detail (ride's internal error) is for Tick's logs, not for the driver.
+		return "", ErrAssignPending
+	}
+	return rideID, err
 }
 
 // DeclineOffer records the answer and offers the ride to the next driver right away instead of on the next tick.

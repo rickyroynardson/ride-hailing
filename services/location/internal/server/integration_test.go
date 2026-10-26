@@ -10,8 +10,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
+	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
-	"github.com/rickyroynardson/ride-hailing/services/location/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/location"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/server"
@@ -270,7 +270,7 @@ func TestIntegration(t *testing.T) {
 
 func startServer(t *testing.T, rdb *redis.Client) locationv1.LocationServiceClient {
 	t.Helper()
-	gs := server.NewGRPCServer(zap.NewNop(), auth.NewVerifier(testSecret), location.NewService(location.NewRepository(rdb)))
+	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier(testSecret), location.NewService(location.NewRepository(rdb)))
 	lis := bufconn.Listen(1 << 20)
 	go gs.Serve(lis)
 	t.Cleanup(gs.Stop)

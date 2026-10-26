@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
+
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/location"
 )
@@ -17,7 +19,7 @@ func NewLocationServer(service *location.LocationService) *LocationServer {
 }
 
 func (s *LocationServer) UpdateDriverLocation(ctx context.Context, req *locationv1.UpdateDriverLocationRequest) (*locationv1.UpdateDriverLocationResponse, error) {
-	caller := callerFromContext(ctx)
+	caller := grpcserver.CallerFrom(ctx)
 	if !caller.Driver {
 		return nil, location.ErrNotDriver
 	}
@@ -50,7 +52,7 @@ var toOutcomeProto = map[location.Outcome]locationv1.UpdateOutcome{
 // GoOffline needs no driver claim: a driver whose approval was just revoked must still be able to leave, and for
 // anyone else it is a no-op.
 func (s *LocationServer) GoOffline(ctx context.Context, _ *locationv1.GoOfflineRequest) (*locationv1.GoOfflineResponse, error) {
-	if err := s.service.GoOffline(ctx, callerFromContext(ctx).UserID); err != nil {
+	if err := s.service.GoOffline(ctx, grpcserver.CallerFrom(ctx).UserID); err != nil {
 		return nil, err
 	}
 
