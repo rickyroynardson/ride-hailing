@@ -8,6 +8,8 @@ service RideService {
   rpc AssignDriver(AssignDriverRequest) returns (AssignDriverResponse);
   rpc MarkNoDriver(MarkNoDriverRequest) returns (MarkNoDriverResponse);
   rpc CancelRide(CancelRideRequest) returns (CancelRideResponse);
+  rpc StartRide(StartRideRequest) returns (StartRideResponse);
+  rpc CompleteRide(CompleteRideRequest) returns (CompleteRideResponse);
 }
 
 message Location {
@@ -57,3 +59,19 @@ message CancelRideRequest {
 }
 
 message CancelRideResponse {}
+
+// The ride's driver picked the rider up: accepted → in_progress. Idempotent, also once the trip has completed.
+// NOT_FOUND: no such ride for this driver. FAILED_PRECONDITION: the ride isn't accepted (e.g. cancelled).
+message StartRideRequest {
+  string ride_id = 1;
+}
+
+message StartRideResponse {}
+
+// The ride's driver dropped the rider off: in_progress → completed. Idempotent.
+// NOT_FOUND: no such ride for this driver. FAILED_PRECONDITION: the trip hasn't started.
+message CompleteRideRequest {
+  string ride_id = 1;
+}
+
+message CompleteRideResponse {}

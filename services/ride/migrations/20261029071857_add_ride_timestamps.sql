@@ -1,0 +1,9 @@
+-- +goose Up
+ALTER TABLE rides ADD COLUMN accepted_at TIMESTAMPTZ;
+ALTER TABLe rides ADD COLUMN started_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN completed_at TIMESTAMPTZ;
+
+-- +goose Down
+ALTER TABLE rides DROP COLUMN IF EXISTS completed_at;
+ALTER TABLE rides DROP COLUMN IF EXISTS started_at;
+ALTER TABLE rides DROP COLUMN IF EXISTS accepted_at;

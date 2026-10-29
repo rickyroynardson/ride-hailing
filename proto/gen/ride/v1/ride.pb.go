@@ -512,6 +512,170 @@ func (*CancelRideResponse) Descriptor() ([]byte, []int) {
 	return file_ride_v1_ride_proto_rawDescGZIP(), []int{10}
 }
 
+// The ride's driver picked the rider up: accepted → in_progress. Idempotent, also once the trip has completed.
+// NOT_FOUND: no such ride for this driver. FAILED_PRECONDITION: the ride isn't accepted (e.g. cancelled).
+type StartRideRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartRideRequest) Reset() {
+	*x = StartRideRequest{}
+	mi := &file_ride_v1_ride_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartRideRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartRideRequest) ProtoMessage() {}
+
+func (x *StartRideRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartRideRequest.ProtoReflect.Descriptor instead.
+func (*StartRideRequest) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *StartRideRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+type StartRideResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartRideResponse) Reset() {
+	*x = StartRideResponse{}
+	mi := &file_ride_v1_ride_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartRideResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartRideResponse) ProtoMessage() {}
+
+func (x *StartRideResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartRideResponse.ProtoReflect.Descriptor instead.
+func (*StartRideResponse) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{12}
+}
+
+// The ride's driver dropped the rider off: in_progress → completed. Idempotent.
+// NOT_FOUND: no such ride for this driver. FAILED_PRECONDITION: the trip hasn't started.
+type CompleteRideRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteRideRequest) Reset() {
+	*x = CompleteRideRequest{}
+	mi := &file_ride_v1_ride_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteRideRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteRideRequest) ProtoMessage() {}
+
+func (x *CompleteRideRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteRideRequest.ProtoReflect.Descriptor instead.
+func (*CompleteRideRequest) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *CompleteRideRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+type CompleteRideResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteRideResponse) Reset() {
+	*x = CompleteRideResponse{}
+	mi := &file_ride_v1_ride_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteRideResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteRideResponse) ProtoMessage() {}
+
+func (x *CompleteRideResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteRideResponse.ProtoReflect.Descriptor instead.
+func (*CompleteRideResponse) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{14}
+}
+
 var File_ride_v1_ride_proto protoreflect.FileDescriptor
 
 const file_ride_v1_ride_proto_rawDesc = "" +
@@ -540,7 +704,13 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\x14MarkNoDriverResponse\",\n" +
 	"\x11CancelRideRequest\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x14\n" +
-	"\x12CancelRideResponse2\xa0\x03\n" +
+	"\x12CancelRideResponse\"+\n" +
+	"\x10StartRideRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x13\n" +
+	"\x11StartRideResponse\".\n" +
+	"\x13CompleteRideRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x16\n" +
+	"\x14CompleteRideResponse2\xb1\x04\n" +
 	"\vRideService\x12E\n" +
 	"\n" +
 	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponse\x12i\n" +
@@ -548,7 +718,9 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\fAssignDriver\x12\x1c.ride.v1.AssignDriverRequest\x1a\x1d.ride.v1.AssignDriverResponse\x12K\n" +
 	"\fMarkNoDriver\x12\x1c.ride.v1.MarkNoDriverRequest\x1a\x1d.ride.v1.MarkNoDriverResponse\x12E\n" +
 	"\n" +
-	"CancelRide\x12\x1a.ride.v1.CancelRideRequest\x1a\x1b.ride.v1.CancelRideResponseB\x97\x01\n" +
+	"CancelRide\x12\x1a.ride.v1.CancelRideRequest\x1a\x1b.ride.v1.CancelRideResponse\x12B\n" +
+	"\tStartRide\x12\x19.ride.v1.StartRideRequest\x1a\x1a.ride.v1.StartRideResponse\x12K\n" +
+	"\fCompleteRide\x12\x1c.ride.v1.CompleteRideRequest\x1a\x1d.ride.v1.CompleteRideResponseB\x97\x01\n" +
 	"\vcom.ride.v1B\tRideProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1;ridev1\xa2\x02\x03RXX\xaa\x02\aRide.V1\xca\x02\aRide\\V1\xe2\x02\x13Ride\\V1\\GPBMetadata\xea\x02\bRide::V1b\x06proto3"
 
 var (
@@ -563,7 +735,7 @@ func file_ride_v1_ride_proto_rawDescGZIP() []byte {
 	return file_ride_v1_ride_proto_rawDescData
 }
 
-var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_ride_v1_ride_proto_goTypes = []any{
 	(*Location)(nil),                       // 0: ride.v1.Location
 	(*CreateRideRequest)(nil),              // 1: ride.v1.CreateRideRequest
@@ -576,6 +748,10 @@ var file_ride_v1_ride_proto_goTypes = []any{
 	(*MarkNoDriverResponse)(nil),           // 8: ride.v1.MarkNoDriverResponse
 	(*CancelRideRequest)(nil),              // 9: ride.v1.CancelRideRequest
 	(*CancelRideResponse)(nil),             // 10: ride.v1.CancelRideResponse
+	(*StartRideRequest)(nil),               // 11: ride.v1.StartRideRequest
+	(*StartRideResponse)(nil),              // 12: ride.v1.StartRideResponse
+	(*CompleteRideRequest)(nil),            // 13: ride.v1.CompleteRideRequest
+	(*CompleteRideResponse)(nil),           // 14: ride.v1.CompleteRideResponse
 }
 var file_ride_v1_ride_proto_depIdxs = []int32{
 	0,  // 0: ride.v1.CreateRideRequest.pickup:type_name -> ride.v1.Location
@@ -585,13 +761,17 @@ var file_ride_v1_ride_proto_depIdxs = []int32{
 	5,  // 4: ride.v1.RideService.AssignDriver:input_type -> ride.v1.AssignDriverRequest
 	7,  // 5: ride.v1.RideService.MarkNoDriver:input_type -> ride.v1.MarkNoDriverRequest
 	9,  // 6: ride.v1.RideService.CancelRide:input_type -> ride.v1.CancelRideRequest
-	2,  // 7: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
-	4,  // 8: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
-	6,  // 9: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
-	8,  // 10: ride.v1.RideService.MarkNoDriver:output_type -> ride.v1.MarkNoDriverResponse
-	10, // 11: ride.v1.RideService.CancelRide:output_type -> ride.v1.CancelRideResponse
-	7,  // [7:12] is the sub-list for method output_type
-	2,  // [2:7] is the sub-list for method input_type
+	11, // 7: ride.v1.RideService.StartRide:input_type -> ride.v1.StartRideRequest
+	13, // 8: ride.v1.RideService.CompleteRide:input_type -> ride.v1.CompleteRideRequest
+	2,  // 9: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
+	4,  // 10: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
+	6,  // 11: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
+	8,  // 12: ride.v1.RideService.MarkNoDriver:output_type -> ride.v1.MarkNoDriverResponse
+	10, // 13: ride.v1.RideService.CancelRide:output_type -> ride.v1.CancelRideResponse
+	12, // 14: ride.v1.RideService.StartRide:output_type -> ride.v1.StartRideResponse
+	14, // 15: ride.v1.RideService.CompleteRide:output_type -> ride.v1.CompleteRideResponse
+	9,  // [9:16] is the sub-list for method output_type
+	2,  // [2:9] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -608,7 +788,7 @@ func file_ride_v1_ride_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ride_v1_ride_proto_rawDesc), len(file_ride_v1_ride_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

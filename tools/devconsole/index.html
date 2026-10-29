@@ -167,6 +167,7 @@ map.on('click', async e => {
 async function goOffline(id) { await api('POST', `/api/actors/${id}/offline`); await poll(); }
 async function checkOffer(id) { await api('POST', `/api/actors/${id}/offer`); ui.tab = 'calls'; await poll(); }
 async function answerOffer(id, offerId, answer) { await api('POST', `/api/actors/${id}/offers/${offerId}/${answer}`); await poll(); }
+async function tripStep(id, rideId, step) { await api('POST', `/api/actors/${id}/rides/${rideId}/${step}`); await poll(); }
 async function cancelRide(id, rideId) { await api('POST', `/api/actors/${id}/rides/${rideId}/cancel`); await poll(); }
 async function removeActor(id) { await api('POST', `/api/actors/${id}/remove`); if (ui.selected === id) ui.selected = null; await poll(); }
 async function clearLog() { await api('POST', '/api/calls/clear'); ui.expanded.clear(); await poll(); }
@@ -208,7 +209,10 @@ function renderActors() {
           <div class="actions"><button class="primary" onclick="answerOffer('${a.id}', '${offer.id}', 'accept')">Accept</button>
           <button onclick="answerOffer('${a.id}', '${offer.id}', 'decline')">Decline</button></div></div>`;
       } else if (onRide) {
-        status += ` <span class="pill info">on ride ${short(onRide.id)}</span>`;
+        status += ` <span class="pill info">${onRide.status === 'accepted' ? 'to pickup' : 'on trip'} ${short(onRide.id)}</span>`;
+        actions += onRide.status === 'accepted'
+          ? `<button class="primary" onclick="event.stopPropagation(); tripStep('${a.id}', '${onRide.id}', 'start')">Start trip</button>`
+          : `<button class="primary" onclick="event.stopPropagation(); tripStep('${a.id}', '${onRide.id}', 'complete')">Complete trip</button>`;
       }
     } else {
       const ride = state.rides.find(r => r.id === a.rideId);
@@ -248,6 +252,17 @@ function renderMap() {
   for (const [k, p] of Object.entries(ui.draft)) {
     L.circleMarker([p.lat, p.lng], { radius: 7, color: css(k === 'pickup' ? '--rider' : '--dropoff'), dashArray: '3 3', fillOpacity: .3 }).bindTooltip(`draft ${k}`).addTo(layer);
   }
+}
+
+// timeline shows how long each trip step took: request → accepted → picked up → dropped off.
+function timeline(r) {
+  const t = k => r[k] && Date.parse(r[k]);
+  const secs = (a, b) => `${Math.round((b - a) / 1000)}s`;
+  const parts = [];
+  if (t('acceptedAt')) parts.push(`matched ${secs(Date.parse(r.createdAt), t('acceptedAt'))}`);
+  if (t('startedAt')) parts.push(`pickup ${secs(t('acceptedAt'), t('startedAt'))}`);
+  if (t('completedAt')) parts.push(`trip ${secs(t('startedAt'), t('completedAt'))}`);
+  return parts.length ? `<div style="color:var(--muted)">${parts.join(' · ')}</div>` : '';
 }
 
 function renderPanel() {
@@ -290,7 +305,7 @@ function renderPanel() {
     panel.innerHTML = err('rides') + err('match_requests') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th></tr>${state.rides.map(r => `<tr>
       <td class="mono">${short(r.id)}<div style="color:var(--muted)">${ago(Date.parse(r.createdAt))}</div></td>
       <td>${esc(nameOf(r.riderId))}</td><td>${r.driverId ? esc(nameOf(r.driverId)) : '—'}</td>
-      <td><span class="pill ${STATUS_PILL[r.status] || ''}">${esc(r.status)}</span>${r.cancelReason ? `<div style="color:var(--muted)">${esc(r.cancelReason.replace('_', ' '))}</div>` : ''}</td>
+      <td><span class="pill ${STATUS_PILL[r.status] || ''}">${esc(r.status)}</span>${r.cancelReason ? `<div style="color:var(--muted)">${esc(r.cancelReason.replace('_', ' '))}</div>` : ''}${timeline(r)}</td>
       <td>${matchCell(r)}</td>
     </tr>`).join('')}</table>` : '<div class="empty">No rides yet. Select a rider and click the map.</div>');
   } else {

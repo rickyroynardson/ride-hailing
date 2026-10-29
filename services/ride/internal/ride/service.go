@@ -77,3 +77,19 @@ func (s *RideService) CancelRide(ctx context.Context, rideID, riderID string) er
 	}
 	return s.repository.CancelRide(ctx, rideID, riderID)
 }
+
+// StartRide and CompleteRide only check that the caller is the ride's driver, not that the token still carries the
+// driver claim: a driver suspended mid-trip must still be able to finish it.
+func (s *RideService) StartRide(ctx context.Context, rideID, driverID string) error {
+	if !uuidPattern.MatchString(rideID) {
+		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+	}
+	return s.repository.StartTrip(ctx, rideID, driverID)
+}
+
+func (s *RideService) CompleteRide(ctx context.Context, rideID, driverID string) error {
+	if !uuidPattern.MatchString(rideID) {
+		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+	}
+	return s.repository.CompleteTrip(ctx, rideID, driverID)
+}

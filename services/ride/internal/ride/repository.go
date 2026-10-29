@@ -3,6 +3,8 @@ package ride
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -68,7 +70,7 @@ func (r *RideRepository) BusyDrivers(ctx context.Context, driverIDs []string) (m
 // after a timeout without knowing whether its first call landed.
 func (r *RideRepository) AssignDriver(ctx context.Context, rideID, driverID string) error {
 	tag, err := r.DB.Exec(ctx,
-		`UPDATE rides SET driver_id = $2, status = 'accepted', updated_at = now() WHERE id = $1 AND status = 'requested'`,
+		`UPDATE rides SET driver_id = $2, status = 'accepted', accepted_at = now(), updated_at = now() WHERE id = $1 AND status = 'requested'`,
 		rideID, driverID,
 	)
 	var pgErr *pgconn.PgError
@@ -147,6 +149,56 @@ func (r *RideRepository) CancelRide(ctx context.Context, rideID, riderID string)
 	case err != nil:
 		return err
 	case status == "cancelled":
+		return nil
+	default:
+		return ErrRideUnavailable
+	}
+}
+
+// tripStep is a transition the ride's driver makes: from one status to the next, stamping when it happened.
+// done lists the statuses where the step has already happened, so a retried request succeeds.
+type tripStep struct {
+	from, to string
+	stampCol string // a constant below, never input: it is formatted into the SQL
+	done     []string
+}
+
+var (
+	startTrip    = tripStep{from: "accepted", to: "in_progress", stampCol: "started_at", done: []string{"in_progress", "completed"}}
+	completeTrip = tripStep{from: "in_progress", to: "completed", stampCol: "completed_at", done: []string{"completed"}}
+)
+
+func (r *RideRepository) StartTrip(ctx context.Context, rideID, driverID string) error {
+	return r.advanceTrip(ctx, rideID, driverID, startTrip)
+}
+
+func (r *RideRepository) CompleteTrip(ctx context.Context, rideID, driverID string) error {
+	return r.advanceTrip(ctx, rideID, driverID, completeTrip)
+}
+
+// advanceTrip moves the driver's ride one step along the trip, guarded by the status it must be in. Another driver's
+// ride reads as not found, like a rider's in CancelRide.
+func (r *RideRepository) advanceTrip(ctx context.Context, rideID, driverID string, step tripStep) error {
+	tag, err := r.DB.Exec(ctx,
+		fmt.Sprintf(`UPDATE rides SET status = $3, %s = now(), updated_at = now()
+		WHERE id = $1 AND driver_id = $2 AND status = $4`, step.stampCol),
+		rideID, driverID, step.to, step.from,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+
+	var status string
+	err = r.DB.QueryRow(ctx, `SELECT status FROM rides WHERE id = $1 AND driver_id = $2`, rideID, driverID).Scan(&status)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return ErrRideNotFound
+	case err != nil:
+		return err
+	case slices.Contains(step.done, status):
 		return nil
 	default:
 		return ErrRideUnavailable

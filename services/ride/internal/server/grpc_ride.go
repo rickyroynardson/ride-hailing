@@ -64,6 +64,22 @@ func (s *RideServer) CancelRide(ctx context.Context, req *ridev1.CancelRideReque
 	return &ridev1.CancelRideResponse{}, nil
 }
 
+func (s *RideServer) StartRide(ctx context.Context, req *ridev1.StartRideRequest) (*ridev1.StartRideResponse, error) {
+	if err := s.service.StartRide(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
+		return nil, err
+	}
+
+	return &ridev1.StartRideResponse{}, nil
+}
+
+func (s *RideServer) CompleteRide(ctx context.Context, req *ridev1.CompleteRideRequest) (*ridev1.CompleteRideResponse, error) {
+	if err := s.service.CompleteRide(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
+		return nil, err
+	}
+
+	return &ridev1.CompleteRideResponse{}, nil
+}
+
 func toLocation(l *ridev1.Location) *ride.Location {
 	if l == nil {
 		return nil

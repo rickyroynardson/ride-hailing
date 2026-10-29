@@ -377,6 +377,80 @@ func TestIntegration(t *testing.T) {
 	if err := cancelRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000004"), accepted.GetRideId()); err != nil {
 		t.Fatalf("cancel accepted ride: %v", err)
 	}
+
+	// The trip: AssignDriver stamps accepted_at; the ride's driver starts and completes it, each step idempotent.
+	tripRider, tripDriver := "dddddddd-0000-0000-0000-000000000005", "cccccccc-0000-0000-0000-00000000000b"
+	trip, err := client.CreateRide(withToken(t, ctx, tripRider), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := assign(trip.GetRideId(), tripDriver); err != nil {
+		t.Fatal(err)
+	}
+	driverCtx := withToken(t, ctx, tripDriver)
+	startRide := func(who context.Context, ride string) error {
+		_, err := client.StartRide(who, &ridev1.StartRideRequest{RideId: ride})
+		return err
+	}
+	completeRide := func(who context.Context, ride string) error {
+		_, err := client.CompleteRide(who, &ridev1.CompleteRideRequest{RideId: ride})
+		return err
+	}
+	stamps := func() (accepted, started, completed bool) {
+		t.Helper()
+		pool.QueryRow(ctx, `SELECT accepted_at IS NOT NULL, started_at IS NOT NULL, completed_at IS NOT NULL FROM rides WHERE id = $1`,
+			trip.GetRideId()).Scan(&accepted, &started, &completed)
+		return
+	}
+	if a, s, c := stamps(); !a || s || c {
+		t.Fatalf("after assign: accepted %v started %v completed %v", a, s, c)
+	}
+
+	wantCode(t, "start someone else's trip", startRide(withToken(t, ctx, otherDriver), trip.GetRideId()), codes.NotFound)
+	wantCode(t, "rider starts the trip", startRide(withToken(t, ctx, tripRider), trip.GetRideId()), codes.NotFound)
+	wantCode(t, "complete before starting", completeRide(driverCtx, trip.GetRideId()), codes.FailedPrecondition)
+	for i := range 2 {
+		if err := startRide(driverCtx, trip.GetRideId()); err != nil {
+			t.Fatalf("start attempt %d: %v", i+1, err)
+		}
+	}
+	if st, _ := stateOf(trip.GetRideId()); st != "in_progress" {
+		t.Fatalf("after start: %s", st)
+	}
+	wantCode(t, "rider cancels started trip", cancelRide(withToken(t, ctx, tripRider), trip.GetRideId()), codes.FailedPrecondition)
+
+	// While on the trip the driver isn't available; once it's completed, matching may offer them rides again.
+	availableNow := func() bool {
+		t.Helper()
+		res, err := client.FilterAvailableDrivers(service, &ridev1.FilterAvailableDriversRequest{DriverIds: []string{tripDriver}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(res.GetDriverIds()) == 1
+	}
+	if availableNow() {
+		t.Fatal("driver available during the trip")
+	}
+	for i := range 2 {
+		if err := completeRide(driverCtx, trip.GetRideId()); err != nil {
+			t.Fatalf("complete attempt %d: %v", i+1, err)
+		}
+	}
+	if err := startRide(driverCtx, trip.GetRideId()); err != nil {
+		t.Fatalf("late start retry after completion: %v", err)
+	}
+	if st, _ := stateOf(trip.GetRideId()); st != "completed" {
+		t.Fatalf("after complete: %s", st)
+	}
+	if a, s, c := stamps(); !a || !s || !c {
+		t.Fatalf("after trip: accepted %v started %v completed %v", a, s, c)
+	}
+	if !availableNow() {
+		t.Fatal("driver still busy after completing the trip")
+	}
+
+	// A cancelled ride can't be started.
+	wantCode(t, "start cancelled ride", startRide(withToken(t, ctx, "cccccccc-0000-0000-0000-00000000000a"), accepted.GetRideId()), codes.FailedPrecondition)
 }
 
 // fakeMatching records StartMatching and CancelMatching calls, in order, and fails them while err is set.

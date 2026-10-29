@@ -99,6 +99,44 @@ func (c *console) handleCancelRide(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleTripStep starts or completes the trip as the ride's driver.
+func (c *console) handleTripStep(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil || a.Kind != "driver" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a driver"})
+		return
+	}
+	a.mu.Lock()
+	tok, err := c.token(a)
+	a.mu.Unlock()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+
+	rideID := r.PathValue("ride")
+	switch r.PathValue("step") {
+	case "start":
+		req := &ridev1.StartRideRequest{RideId: rideID}
+		_, err = c.call(a.Name, "ride.v1.RideService/StartRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+			return c.ride.StartRide(ctx, req)
+		})
+	case "complete":
+		req := &ridev1.CompleteRideRequest{RideId: rideID}
+		_, err = c.call(a.Name, "ride.v1.RideService/CompleteRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+			return c.ride.CompleteRide(ctx, req)
+		})
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "step must be start or complete"})
+		return
+	}
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleRemoveActor stops a driver's heartbeat, takes them offline, and forgets the session. Their user and
 // rides stay in the databases.
 func (c *console) handleRemoveActor(w http.ResponseWriter, r *http.Request) {

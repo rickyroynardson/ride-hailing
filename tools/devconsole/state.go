@@ -17,14 +17,18 @@ type driverPosition struct {
 }
 
 type rideRow struct {
-	ID        string    `json:"id"`
-	RiderID   string    `json:"riderId"`
-	DriverID  string    `json:"driverId"`
-	Status    string    `json:"status"`
-	Reason    string    `json:"cancelReason"`
-	Pickup    latLng    `json:"pickup"`
-	Dropoff   latLng    `json:"dropoff"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID       string `json:"id"`
+	RiderID  string `json:"riderId"`
+	DriverID string `json:"driverId"`
+	Status   string `json:"status"`
+	Reason   string `json:"cancelReason"`
+	// Trip timeline; nil until the step happens.
+	AcceptedAt  *time.Time `json:"acceptedAt"`
+	StartedAt   *time.Time `json:"startedAt"`
+	CompletedAt *time.Time `json:"completedAt"`
+	Pickup      latLng     `json:"pickup"`
+	Dropoff     latLng     `json:"dropoff"`
+	CreatedAt   time.Time  `json:"createdAt"`
 }
 
 type matchRequestRow struct {
@@ -69,10 +73,11 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rides, err := collect(ctx, c.ridesDB, `SELECT id, rider_id, COALESCE(driver_id::text, ''), status, COALESCE(cancel_reason, ''),
+		accepted_at, started_at, completed_at,
 		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at FROM rides ORDER BY created_at DESC LIMIT 50`,
 		func(row pgx.CollectableRow) (rideRow, error) {
 			var x rideRow
-			err := row.Scan(&x.ID, &x.RiderID, &x.DriverID, &x.Status, &x.Reason, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.CreatedAt)
+			err := row.Scan(&x.ID, &x.RiderID, &x.DriverID, &x.Status, &x.Reason, &x.AcceptedAt, &x.StartedAt, &x.CompletedAt, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.CreatedAt)
 			return x, err
 		})
 	if err != nil {

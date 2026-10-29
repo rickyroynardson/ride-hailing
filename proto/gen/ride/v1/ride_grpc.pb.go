@@ -24,6 +24,8 @@ const (
 	RideService_AssignDriver_FullMethodName           = "/ride.v1.RideService/AssignDriver"
 	RideService_MarkNoDriver_FullMethodName           = "/ride.v1.RideService/MarkNoDriver"
 	RideService_CancelRide_FullMethodName             = "/ride.v1.RideService/CancelRide"
+	RideService_StartRide_FullMethodName              = "/ride.v1.RideService/StartRide"
+	RideService_CompleteRide_FullMethodName           = "/ride.v1.RideService/CompleteRide"
 )
 
 // RideServiceClient is the client API for RideService service.
@@ -35,6 +37,8 @@ type RideServiceClient interface {
 	AssignDriver(ctx context.Context, in *AssignDriverRequest, opts ...grpc.CallOption) (*AssignDriverResponse, error)
 	MarkNoDriver(ctx context.Context, in *MarkNoDriverRequest, opts ...grpc.CallOption) (*MarkNoDriverResponse, error)
 	CancelRide(ctx context.Context, in *CancelRideRequest, opts ...grpc.CallOption) (*CancelRideResponse, error)
+	StartRide(ctx context.Context, in *StartRideRequest, opts ...grpc.CallOption) (*StartRideResponse, error)
+	CompleteRide(ctx context.Context, in *CompleteRideRequest, opts ...grpc.CallOption) (*CompleteRideResponse, error)
 }
 
 type rideServiceClient struct {
@@ -95,6 +99,26 @@ func (c *rideServiceClient) CancelRide(ctx context.Context, in *CancelRideReques
 	return out, nil
 }
 
+func (c *rideServiceClient) StartRide(ctx context.Context, in *StartRideRequest, opts ...grpc.CallOption) (*StartRideResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartRideResponse)
+	err := c.cc.Invoke(ctx, RideService_StartRide_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rideServiceClient) CompleteRide(ctx context.Context, in *CompleteRideRequest, opts ...grpc.CallOption) (*CompleteRideResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteRideResponse)
+	err := c.cc.Invoke(ctx, RideService_CompleteRide_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RideServiceServer is the server API for RideService service.
 // All implementations must embed UnimplementedRideServiceServer
 // for forward compatibility.
@@ -104,6 +128,8 @@ type RideServiceServer interface {
 	AssignDriver(context.Context, *AssignDriverRequest) (*AssignDriverResponse, error)
 	MarkNoDriver(context.Context, *MarkNoDriverRequest) (*MarkNoDriverResponse, error)
 	CancelRide(context.Context, *CancelRideRequest) (*CancelRideResponse, error)
+	StartRide(context.Context, *StartRideRequest) (*StartRideResponse, error)
+	CompleteRide(context.Context, *CompleteRideRequest) (*CompleteRideResponse, error)
 	mustEmbedUnimplementedRideServiceServer()
 }
 
@@ -128,6 +154,12 @@ func (UnimplementedRideServiceServer) MarkNoDriver(context.Context, *MarkNoDrive
 }
 func (UnimplementedRideServiceServer) CancelRide(context.Context, *CancelRideRequest) (*CancelRideResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelRide not implemented")
+}
+func (UnimplementedRideServiceServer) StartRide(context.Context, *StartRideRequest) (*StartRideResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartRide not implemented")
+}
+func (UnimplementedRideServiceServer) CompleteRide(context.Context, *CompleteRideRequest) (*CompleteRideResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteRide not implemented")
 }
 func (UnimplementedRideServiceServer) mustEmbedUnimplementedRideServiceServer() {}
 func (UnimplementedRideServiceServer) testEmbeddedByValue()                     {}
@@ -240,6 +272,42 @@ func _RideService_CancelRide_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RideService_StartRide_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartRideRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).StartRide(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_StartRide_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).StartRide(ctx, req.(*StartRideRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RideService_CompleteRide_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteRideRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).CompleteRide(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_CompleteRide_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).CompleteRide(ctx, req.(*CompleteRideRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RideService_ServiceDesc is the grpc.ServiceDesc for RideService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +334,14 @@ var RideService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelRide",
 			Handler:    _RideService_CancelRide_Handler,
+		},
+		{
+			MethodName: "StartRide",
+			Handler:    _RideService_StartRide_Handler,
+		},
+		{
+			MethodName: "CompleteRide",
+			Handler:    _RideService_CompleteRide_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

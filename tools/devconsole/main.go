@@ -81,6 +81,7 @@ func main() {
 	mux.HandleFunc("POST /api/actors/{id}/offline", c.handleOffline)
 	mux.HandleFunc("POST /api/actors/{id}/rides", c.handleRequestRide)
 	mux.HandleFunc("POST /api/actors/{id}/rides/{ride}/cancel", c.handleCancelRide)
+	mux.HandleFunc("POST /api/actors/{id}/rides/{ride}/{step}", c.handleTripStep)
 	mux.HandleFunc("POST /api/rides/{id}/start-matching", c.handleStartMatching)
 	mux.HandleFunc("POST /api/actors/{id}/offer", c.handleGetOffer)
 	mux.HandleFunc("POST /api/actors/{id}/offers/{offer}/{answer}", c.handleAnswerOffer)
