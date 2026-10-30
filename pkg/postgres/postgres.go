@@ -19,6 +19,8 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	c.MaxConnIdleTime = 15 * time.Minute
 	c.MaxConnLifetime = time.Hour
 	c.HealthCheckPeriod = time.Minute
+	// A span per query, inside the request's trace. With tracing off it records nothing.
+	c.ConnConfig.Tracer = newQueryTracer()
 
 	pool, err := pgxpool.NewWithConfig(ctx, c)
 	if err != nil {

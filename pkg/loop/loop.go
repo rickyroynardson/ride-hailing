@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -13,6 +14,8 @@ const reminderEvery = time.Minute
 // Run calls fn every interval until ctx is done. While fn keeps failing it backs off, doubling the wait up to
 // maxWait, and logs only state changes: the first failure, a reminder every reminderEvery, and the recovery.
 // A loop failing every second would otherwise log 3,600 identical warnings an hour.
+// Iterations aren't traced: most find nothing to do, and one iteration can touch many unrelated rides. fn runs
+// under telemetry.Untraced and starts its own trace (telemetry.StartWork) for each real piece of work.
 func Run(ctx context.Context, lg *zap.Logger, name string, interval, maxWait time.Duration, fn func(context.Context) error) {
 	wait := interval
 	var failingSince, lastLog time.Time
@@ -26,7 +29,7 @@ func Run(ctx context.Context, lg *zap.Logger, name string, interval, maxWait tim
 		case <-timer.C:
 		}
 
-		err := fn(ctx)
+		err := fn(telemetry.Untraced(ctx))
 		if ctx.Err() != nil {
 			return
 		}

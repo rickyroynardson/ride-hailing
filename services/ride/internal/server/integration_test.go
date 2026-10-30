@@ -19,6 +19,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
@@ -231,6 +232,25 @@ func TestIntegration(t *testing.T) {
 	if r := rowFor(created.GetRideId()); r.kind != "start_matching" || r.sent || r.attempts != 0 {
 		t.Fatalf("outbox row after CreateRide: %+v", r)
 	}
+
+	// A traced request stores its trace context with the message, so the relay's send continues that trace.
+	// (Tracing export is off in tests; the propagator alone carries the incoming traceparent through.)
+	if _, err := telemetry.Setup(ctx, "ride-test"); err != nil {
+		t.Fatal(err)
+	}
+	const incomingTrace = "4bf92f3577b34da6a3ce929d0e0e4736"
+	tracedCtx := metadata.AppendToOutgoingContext(withToken(t, ctx, "dddddddd-0000-0000-0000-0000000000aa"),
+		"traceparent", "00-"+incomingTrace+"-00f067aa0ba902b7-01")
+	traced, err := client.CreateRide(tracedCtx, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedTrace string
+	pool.QueryRow(ctx, `SELECT COALESCE(trace_parent, '') FROM outbox WHERE payload->>'ride_id' = $1`, traced.GetRideId()).Scan(&storedTrace)
+	if !strings.Contains(storedTrace, incomingTrace) {
+		t.Fatalf("outbox trace_parent %q, want it to carry trace %s", storedTrace, incomingTrace)
+	}
+	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE payload->>'ride_id' = $1`, traced.GetRideId()) // not this step's delivery concern
 
 	// The ride and its message are saved together: a refused CreateRide leaves no message behind.
 	var before, after int

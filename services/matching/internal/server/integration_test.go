@@ -18,6 +18,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
@@ -234,6 +235,24 @@ func TestIntegration(t *testing.T) {
 	if pending != 1 {
 		t.Fatalf("concurrent start: %d pending offers, want 1", pending)
 	}
+
+	// A traced StartMatching stores the incoming trace on the request, for later attempts to join.
+	if _, err := telemetry.Setup(ctx, "matching-test"); err != nil {
+		t.Fatal(err)
+	}
+	const incomingTrace = "4bf92f3577b34da6a3ce929d0e0e4736"
+	tracedRide := "aaaaaaaa-0000-0000-0000-0000000000aa"
+	location.set()
+	tracedCtx := metadata.AppendToOutgoingContext(service, "traceparent", "00-"+incomingTrace+"-00f067aa0ba902b7-01")
+	if _, err := client.StartMatching(tracedCtx, &matchingv1.StartMatchingRequest{RideId: tracedRide, Pickup: pickup}); err != nil {
+		t.Fatal(err)
+	}
+	var storedTrace string
+	pool.QueryRow(ctx, `SELECT COALESCE(trace_parent, '') FROM match_requests WHERE ride_id = $1`, tracedRide).Scan(&storedTrace)
+	if !strings.Contains(storedTrace, incomingTrace) {
+		t.Fatalf("match request trace_parent %q, want it to carry trace %s", storedTrace, incomingTrace)
+	}
+	pool.Exec(ctx, `UPDATE match_requests SET status = 'cancelled' WHERE ride_id = $1`, tracedRide) // keep it out of later ticks
 
 	// Tick: the loop that keeps matching moving. Deadlines are moved into the past with SQL instead of waiting.
 	const (

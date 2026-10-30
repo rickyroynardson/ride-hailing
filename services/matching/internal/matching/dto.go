@@ -47,6 +47,8 @@ type StartInput struct {
 	RideID string
 	// Pointer because proto3 reports an unset location as nil, while 0,0 is a real coordinate.
 	Pickup *Location
+	// TraceParent is the stored trace of the request that started matching; set when read back for later work.
+	TraceParent string
 }
 
 func (in StartInput) Validate() error {
@@ -68,6 +70,14 @@ type Offer struct {
 	RideID    string
 	DriverID  string
 	ExpiresAt time.Time
+	// TraceParent is the trace of the ride's match request, for confirming the offer inside it.
+	TraceParent string
+}
+
+// NoDriverRequest is a request that ended no_driver and still has to be told to ride.
+type NoDriverRequest struct {
+	RideID      string
+	TraceParent string
 }
 
 // DriverOffer is a pending offer as the driver sees it.

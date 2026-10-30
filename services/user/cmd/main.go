@@ -15,6 +15,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
@@ -36,6 +37,12 @@ func main() {
 	defer lg.Sync()
 
 	ctx := context.Background()
+
+	shutdownTracing, err := telemetry.Setup(ctx, cfg.ServiceName)
+	if err != nil {
+		lg.Fatal("failed to set up tracing", zap.Error(err))
+	}
+	defer shutdownTracing(context.Background())
 
 	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {

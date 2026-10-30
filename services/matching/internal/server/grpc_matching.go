@@ -4,9 +4,10 @@ import (
 	"context"
 
 	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
-
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -20,6 +21,7 @@ func NewMatchingServer(service *matching.MatchingService) *MatchingServer {
 }
 
 func (s *MatchingServer) StartMatching(ctx context.Context, req *matchingv1.StartMatchingRequest) (*matchingv1.StartMatchingResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	in := matching.StartInput{RideID: req.GetRideId()}
 	if p := req.GetPickup(); p != nil {
 		in.Pickup = &matching.Location{Lat: p.GetLat(), Lng: p.GetLng()}
@@ -54,6 +56,7 @@ func (s *MatchingServer) GetOffer(ctx context.Context, _ *matchingv1.GetOfferReq
 }
 
 func (s *MatchingServer) AcceptOffer(ctx context.Context, req *matchingv1.AcceptOfferRequest) (*matchingv1.AcceptOfferResponse, error) {
+	telemetry.Tag(ctx, attribute.String("offer.id", req.GetOfferId()))
 	caller := grpcserver.CallerFrom(ctx)
 	if !caller.Driver {
 		return nil, matching.ErrNotDriver
@@ -67,6 +70,7 @@ func (s *MatchingServer) AcceptOffer(ctx context.Context, req *matchingv1.Accept
 }
 
 func (s *MatchingServer) DeclineOffer(ctx context.Context, req *matchingv1.DeclineOfferRequest) (*matchingv1.DeclineOfferResponse, error) {
+	telemetry.Tag(ctx, attribute.String("offer.id", req.GetOfferId()))
 	caller := grpcserver.CallerFrom(ctx)
 	if !caller.Driver {
 		return nil, matching.ErrNotDriver
@@ -79,6 +83,7 @@ func (s *MatchingServer) DeclineOffer(ctx context.Context, req *matchingv1.Decli
 }
 
 func (s *MatchingServer) CancelMatching(ctx context.Context, req *matchingv1.CancelMatchingRequest) (*matchingv1.CancelMatchingResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.CancelMatching(ctx, req.GetRideId()); err != nil {
 		return nil, err
 	}

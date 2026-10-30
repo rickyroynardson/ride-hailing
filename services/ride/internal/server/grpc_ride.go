@@ -4,9 +4,10 @@ import (
 	"context"
 
 	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
-
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/ride"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type RideServer struct {
@@ -28,6 +29,7 @@ func (s *RideServer) CreateRide(ctx context.Context, req *ridev1.CreateRideReque
 		return nil, err
 	}
 
+	telemetry.Tag(ctx, attribute.String("ride.id", id))
 	return &ridev1.CreateRideResponse{RideId: id}, nil
 }
 
@@ -41,6 +43,7 @@ func (s *RideServer) FilterAvailableDrivers(ctx context.Context, req *ridev1.Fil
 }
 
 func (s *RideServer) AssignDriver(ctx context.Context, req *ridev1.AssignDriverRequest) (*ridev1.AssignDriverResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.AssignDriver(ctx, req.GetRideId(), req.GetDriverId()); err != nil {
 		return nil, err
 	}
@@ -49,6 +52,7 @@ func (s *RideServer) AssignDriver(ctx context.Context, req *ridev1.AssignDriverR
 }
 
 func (s *RideServer) MarkNoDriver(ctx context.Context, req *ridev1.MarkNoDriverRequest) (*ridev1.MarkNoDriverResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.MarkNoDriver(ctx, req.GetRideId()); err != nil {
 		return nil, err
 	}
@@ -57,6 +61,7 @@ func (s *RideServer) MarkNoDriver(ctx context.Context, req *ridev1.MarkNoDriverR
 }
 
 func (s *RideServer) CancelRide(ctx context.Context, req *ridev1.CancelRideRequest) (*ridev1.CancelRideResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.CancelRide(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
 		return nil, err
 	}
@@ -65,6 +70,7 @@ func (s *RideServer) CancelRide(ctx context.Context, req *ridev1.CancelRideReque
 }
 
 func (s *RideServer) StartRide(ctx context.Context, req *ridev1.StartRideRequest) (*ridev1.StartRideResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.StartRide(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
 		return nil, err
 	}
@@ -73,6 +79,7 @@ func (s *RideServer) StartRide(ctx context.Context, req *ridev1.StartRideRequest
 }
 
 func (s *RideServer) CompleteRide(ctx context.Context, req *ridev1.CompleteRideRequest) (*ridev1.CompleteRideResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.CompleteRide(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
 		return nil, err
 	}

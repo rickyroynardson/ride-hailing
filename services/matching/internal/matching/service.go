@@ -8,8 +8,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -64,7 +66,14 @@ func (s *MatchingService) Tick(ctx context.Context) error {
 	}
 	var errs []error
 	for _, o := range unconfirmed {
-		if err := s.confirm(ctx, o); err != nil && !errors.Is(err, ErrOfferUnavailable) {
+		workCtx, end := telemetry.StartConsumer(ctx, "confirm accept", o.TraceParent,
+			attribute.String("offer.id", o.ID), attribute.String("ride.id", o.RideID), attribute.String("driver.id", o.DriverID))
+		err := s.confirm(workCtx, o)
+		if errors.Is(err, ErrOfferUnavailable) {
+			err = nil // ride refused the assignment: an expected outcome, not a failure
+		}
+		end(err)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("confirm offer %s: %w", o.ID, err))
 		}
 	}
@@ -87,7 +96,12 @@ func (s *MatchingService) Tick(ctx context.Context) error {
 		return fmt.Errorf("list waiting requests: %w", err)
 	}
 	for _, in := range waiting {
-		if _, err := s.offerNext(ctx, in); err != nil {
+		// ponytail: a ride nobody can take yet is retried every second, a trace each time; the retry backoff
+		// (next_attempt_at) would cut both the work and the traces
+		workCtx, end := telemetry.StartConsumer(ctx, "reoffer ride", in.TraceParent, attribute.String("ride.id", in.RideID))
+		_, err := s.offerNext(workCtx, in)
+		end(err)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("ride %s: %w", in.RideID, err))
 		}
 	}
@@ -152,25 +166,39 @@ func (s *MatchingService) notifyNoDriver(ctx context.Context) error {
 		return err
 	}
 	var errs []error
-	for _, rideID := range rides {
-		callCtx, cancel := context.WithTimeout(ctx, callTimeout)
-		_, err := s.ride.MarkNoDriver(callCtx, &ridev1.MarkNoDriverRequest{RideId: rideID})
-		cancel()
-		switch status.Code(err) {
-		case codes.OK:
-		case codes.FailedPrecondition:
-			// Ride says the ride has a driver, so it isn't ours to cancel. Retrying won't change that: stop, but
-			// report it, since matching and ride disagree about this ride.
-			errs = append(errs, fmt.Errorf("ride %s refused no_driver: %w", rideID, err))
-		default:
-			errs = append(errs, fmt.Errorf("ride %s: %w", rideID, err))
-			continue
-		}
-		if err := s.repository.MarkRideNotified(ctx, rideID); err != nil {
+	for _, req := range rides {
+		if err := s.notifyRide(ctx, req); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// notifyRide tells ride one request ended without a driver, as a CONSUMER span in the trace of the request that
+// started matching.
+func (s *MatchingService) notifyRide(ctx context.Context, req NoDriverRequest) (err error) {
+	rideID := req.RideID
+	ctx, end := telemetry.StartConsumer(ctx, "notify no_driver", req.TraceParent, attribute.String("ride.id", rideID))
+	defer func() { end(err) }()
+
+	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	_, callErr := s.ride.MarkNoDriver(callCtx, &ridev1.MarkNoDriverRequest{RideId: rideID})
+	cancel()
+
+	var refused error
+	switch status.Code(callErr) {
+	case codes.OK:
+	case codes.FailedPrecondition:
+		// Ride says the ride has a driver, so it isn't ours to cancel. Retrying won't change that: stop, but
+		// report it, since matching and ride disagree about this ride.
+		refused = fmt.Errorf("ride %s refused no_driver: %w", rideID, callErr)
+	default:
+		return fmt.Errorf("ride %s: %w", rideID, callErr)
+	}
+	if err := s.repository.MarkRideNotified(ctx, rideID); err != nil {
+		return err
+	}
+	return refused
 }
 
 // GetOffer returns the driver's pending offer, or nil. Driver apps poll it.
@@ -192,6 +220,7 @@ func (s *MatchingService) AcceptOffer(ctx context.Context, offerID, driverID str
 	if err != nil {
 		return "", err
 	}
+	s.linkToRequest(ctx, rideID)
 	err = s.confirm(ctx, Offer{ID: offerID, RideID: rideID, DriverID: driverID})
 	if errors.Is(err, ErrAssignPending) {
 		// The wrapped detail (ride's internal error) is for Tick's logs, not for the driver.
@@ -209,11 +238,21 @@ func (s *MatchingService) DeclineOffer(ctx context.Context, offerID, driverID st
 	if err != nil {
 		return err
 	}
+	s.linkToRequest(ctx, rideID)
 	// Best effort: if this fails, Tick re-offers within a second. The driver's decline already succeeded.
 	if in, err := s.repository.MatchingRequest(ctx, rideID); err == nil && in != nil {
 		s.offerNext(ctx, *in)
 	}
 	return nil
+}
+
+// linkToRequest links a driver's action to the rider's request trace. The driver's tap is a separate request by a
+// different person, so it stays its own trace; the link connects the two both ways in the trace UI.
+func (s *MatchingService) linkToRequest(ctx context.Context, rideID string) {
+	telemetry.Tag(ctx, attribute.String("ride.id", rideID))
+	if tp, err := s.repository.RequestTraceParent(ctx, rideID); err == nil {
+		telemetry.LinkTo(ctx, tp)
+	}
 }
 
 // confirm asks ride to assign an accepted offer's driver and settles the offer on ride's definite answer.

@@ -14,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -49,14 +51,29 @@ type CancelMatching struct {
 
 func (CancelMatching) Kind() string { return "cancel_matching" }
 
-// Add writes a message in the caller's transaction, so it is saved exactly when the change it announces is.
-func Add(ctx context.Context, tx pgx.Tx, m Message) error {
+// Add writes a message in the caller's transaction, so it is saved exactly when the change it announces is. It
+// records a PRODUCER span and stores that span's trace context with the message, so the relay's processing appears
+// in the request's trace as an async hop, its CONSUMER child.
+func Add(ctx context.Context, tx pgx.Tx, m Message) (err error) {
+	ctx, end := telemetry.StartProducer(ctx, "outbox publish "+m.Kind(), messagingAttrs(m.Kind(), "publish")...)
+	defer func() { end(err) }()
+
 	payload, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO outbox(kind, payload) VALUES ($1, $2)`, m.Kind(), payload)
+	_, err = tx.Exec(ctx, `INSERT INTO outbox(kind, payload, trace_parent) VALUES ($1, $2, NULLIF($3, ''))`,
+		m.Kind(), payload, telemetry.TraceParent(ctx))
 	return err
+}
+
+// messagingAttrs are the OpenTelemetry messaging attributes for an outbox message of kind.
+func messagingAttrs(kind, operation string) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("messaging.system", "outbox"),
+		attribute.String("messaging.destination.name", kind),
+		attribute.String("messaging.operation.type", operation),
+	}
 }
 
 var (
@@ -90,7 +107,7 @@ func (r *Relay) Run(ctx context.Context) error {
 		// A ride's messages go in order: one waits while an older message for the same ride is unsent, so
 		// matching can never get a ride's cancel before its start. Other rides' messages aren't held up.
 		rows, err := tx.Query(ctx,
-			`SELECT o.id, o.kind, o.payload FROM outbox o
+			`SELECT o.id, o.kind, o.payload, COALESCE(o.trace_parent, '') FROM outbox o
 			WHERE o.sent_at IS NULL
 			AND NOT EXISTS (
 				SELECT 1 FROM outbox p
@@ -101,13 +118,14 @@ func (r *Relay) Run(ctx context.Context) error {
 			return err
 		}
 		type msg struct {
-			id      int64
-			kind    string
-			payload []byte
+			id          int64
+			kind        string
+			payload     []byte
+			traceParent string
 		}
 		msgs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (msg, error) {
 			var m msg
-			err := row.Scan(&m.id, &m.kind, &m.payload)
+			err := row.Scan(&m.id, &m.kind, &m.payload, &m.traceParent)
 			return m, err
 		})
 		if err != nil {
@@ -115,22 +133,40 @@ func (r *Relay) Run(ctx context.Context) error {
 		}
 
 		for _, m := range msgs {
-			if err := r.send(ctx, m.kind, m.payload); err != nil {
+			// Processing continues the trace of the request that queued the message, as the CONSUMER child of its
+			// PRODUCER span; polling for messages isn't traced at all (the relay runs under telemetry.Untraced).
+			msgCtx, end := telemetry.StartConsumer(ctx, "outbox process "+m.kind, m.traceParent,
+				append(messagingAttrs(m.kind, "process"),
+					attribute.Int64("messaging.message.id", m.id), attribute.String("ride.id", rideIDOf(m.payload)))...)
+			if err := r.send(msgCtx, m.kind, m.payload); err != nil {
 				failedTotal.WithLabelValues(m.kind).Inc()
 				errs = append(errs, fmt.Errorf("outbox %d (%s): %w", m.id, m.kind, err))
-				if _, err := tx.Exec(ctx, `UPDATE outbox SET attempts = attempts + 1, last_error = $2 WHERE id = $1`, m.id, err.Error()); err != nil {
-					return err
+				_, uerr := tx.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, last_error = $2 WHERE id = $1`, m.id, err.Error())
+				end(err)
+				if uerr != nil {
+					return uerr
 				}
 				continue
 			}
 			sentTotal.WithLabelValues(m.kind).Inc()
-			if _, err := tx.Exec(ctx, `UPDATE outbox SET attempts = attempts + 1, sent_at = now(), last_error = NULL WHERE id = $1`, m.id); err != nil {
-				return err
+			_, uerr := tx.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, sent_at = now(), last_error = NULL WHERE id = $1`, m.id)
+			end(uerr)
+			if uerr != nil {
+				return uerr
 			}
 		}
 		return nil
 	})
 	return errors.Join(append(errs, err)...)
+}
+
+// rideIDOf reads the ride a message is about, for its trace; every message kind carries ride_id.
+func rideIDOf(payload []byte) string {
+	var p struct {
+		RideID string `json:"ride_id"`
+	}
+	json.Unmarshal(payload, &p)
+	return p.RideID
 }
 
 func (r *Relay) send(ctx context.Context, kind string, payload []byte) error {

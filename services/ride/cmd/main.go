@@ -12,10 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
@@ -40,6 +42,12 @@ func main() {
 	defer lg.Sync()
 
 	ctx := context.Background()
+
+	shutdownTracing, err := telemetry.Setup(ctx, cfg.ServiceName)
+	if err != nil {
+		lg.Fatal("failed to set up tracing", zap.Error(err))
+	}
+	defer shutdownTracing(context.Background())
 
 	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
@@ -66,6 +74,7 @@ func main() {
 	matchingConn, err := grpc.NewClient(cfg.MatchingAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		grpcserver.ClientTracing(),
 	)
 	if err != nil {
 		lg.Fatal("failed to create matching client", zap.Error(err))

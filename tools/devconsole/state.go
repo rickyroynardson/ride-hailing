@@ -52,7 +52,7 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	state := map[string]any{"now": time.Now().UnixMilli()}
+	state := map[string]any{"now": time.Now().UnixMilli(), "jaegerUrl": c.jaegerURL}
 	errs := map[string]string{}
 
 	c.mu.Lock()

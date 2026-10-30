@@ -1,5 +1,5 @@
-// Package grpcserver holds the interceptors every service runs: logging with panic recovery and one place that
-// turns errors into gRPC statuses, and authentication with per-method rules for who may call.
+// Package grpcserver holds what every service's gRPC server and clients use: logging with panic recovery and one
+// place that turns errors into gRPC statuses, authentication with per-method rules for who may call, and tracing.
 package grpcserver
 
 import (
@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
@@ -40,6 +43,11 @@ func Logging(lg *zap.Logger, domain ErrorCodes) grpc.UnaryServerInterceptor {
 
 		code := status.Code(st)
 		fields := []zap.Field{method, zap.String("code", code.String()), zap.Duration("duration", time.Since(start))}
+		// The trace ID ties this log line to the request's trace, and to the other services' lines for it. The
+		// context field gives the OpenTelemetry log record its trace and span IDs (pkg/logger keeps it off stdout).
+		if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+			fields = append(fields, zap.String("trace_id", sc.TraceID().String()), zap.Any("ctx", ctx))
+		}
 		if err != nil {
 			fields = append(fields, zap.Error(err))
 		}
@@ -124,6 +132,12 @@ func Auth(verifier *jwtauth.Verifier, methodAccess map[string]Access) grpc.Unary
 		if (caller.Service != "" && a == UsersOnly) || (caller.Service == "" && a == ServicesOnly) {
 			return nil, jwtauth.ErrWrongCaller
 		}
+		// Who called is the first question when reading a trace: the user, or the service acting for one.
+		if caller.Service != "" {
+			trace.SpanFromContext(ctx).SetAttributes(attribute.String("caller.service", caller.Service))
+		} else {
+			trace.SpanFromContext(ctx).SetAttributes(attribute.String("enduser.id", caller.UserID), attribute.Bool("enduser.driver", caller.Driver))
+		}
 
 		return handler(context.WithValue(ctx, callerKey{}, caller), req)
 	}
@@ -133,4 +147,15 @@ func Auth(verifier *jwtauth.Verifier, methodAccess map[string]Access) grpc.Unary
 func CallerFrom(ctx context.Context) jwtauth.Caller {
 	c, _ := ctx.Value(callerKey{}).(jwtauth.Caller)
 	return c
+}
+
+// ServerTracing records a span for every incoming RPC, continuing the caller's trace from its traceparent header.
+func ServerTracing() grpc.ServerOption {
+	return grpc.StatsHandler(otelgrpc.NewServerHandler())
+}
+
+// ClientTracing records a span for every outgoing RPC and sends the trace along in a traceparent header, so the
+// called service continues the same trace.
+func ClientTracing() grpc.DialOption {
+	return grpc.WithStatsHandler(otelgrpc.NewClientHandler())
 }

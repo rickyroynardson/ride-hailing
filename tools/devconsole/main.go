@@ -14,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
@@ -35,6 +37,11 @@ func env(key, def string) string {
 
 func main() {
 	ctx := context.Background()
+	shutdownTracing, err := telemetry.Setup(ctx, "devconsole")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer shutdownTracing(context.Background())
 
 	pool := func(url string) *pgxpool.Pool {
 		p, err := pgxpool.New(ctx, url)
@@ -44,7 +51,9 @@ func main() {
 		return p
 	}
 	dial := func(addr string) *grpc.ClientConn {
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		// The console's calls start traces, so each call in its log can link to the whole journey in Jaeger. Its
+		// own database and Redis reads stay untraced: polled every 1.5s, they would bury the real traffic.
+		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpcserver.ClientTracing())
 		if err != nil {
 			log.Fatalf("grpc %s: %v", addr, err)
 		}
@@ -58,6 +67,7 @@ func main() {
 	userConn := dial(env("USER_ADDR", "localhost:50051"))
 	c := &console{
 		jwtSecret:  []byte(env("JWT_SECRET", "dev-secret-change-me")),
+		jaegerURL:  env("JAEGER_UI_URL", "http://localhost:16686"),
 		auth:       userv1.NewAuthServiceClient(userConn),
 		user:       userv1.NewUserServiceClient(userConn),
 		ride:       ridev1.NewRideServiceClient(dial(env("RIDE_ADDR", "localhost:50052"))),

@@ -285,7 +285,8 @@ function renderPanel() {
       return `<div class="call" onclick="toggle('${esc(key)}')">
         <div class="row"><span class="pill ${codeClass(c.code)}">${esc(c.code)}</span>
           <span class="method">${esc(c.method.split('/').pop())} <span style="color:var(--muted)">${esc(c.method.split('/')[0])}</span></span>
-          <span class="when">${esc(c.actor)} · ${ago(Date.parse(c.at))}</span><span class="ms">${c.durationMs.toFixed(1)}ms</span></div>
+          <span class="when">${esc(c.actor)} · ${ago(Date.parse(c.at))}</span><span class="ms">${c.durationMs.toFixed(1)}ms</span>
+          ${c.traceId ? `<a class="ms" href="${esc(state.jaegerUrl)}/trace/${esc(c.traceId)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open this call's whole journey across services in Jaeger">trace ↗</a>` : ''}</div>
         ${c.error ? `<div class="label" style="color:var(--bad)">${esc(c.error)}</div>` : ''}
         ${open ? `<div class="label">request</div><pre>${esc(JSON.stringify(c.request, null, 2))}</pre>
                   <div class="label">response</div><pre>${esc(JSON.stringify(c.response, null, 2))}</pre>` : ''}

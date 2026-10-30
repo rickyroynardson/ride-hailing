@@ -12,9 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/loop"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/location/internal/location"
@@ -36,11 +38,20 @@ func main() {
 
 	ctx := context.Background()
 
+	shutdownTracing, err := telemetry.Setup(ctx, cfg.ServiceName)
+	if err != nil {
+		lg.Fatal("failed to set up tracing", zap.Error(err))
+	}
+	defer shutdownTracing(context.Background())
+
 	rdb, err := database.ConnectRedis(ctx, cfg.RedisURL)
 	if err != nil {
 		lg.Fatal("failed to connect redis", zap.Error(err))
 	}
 	defer rdb.Close()
+	if err := redisotel.InstrumentTracing(rdb); err != nil {
+		lg.Fatal("failed to trace redis", zap.Error(err))
+	}
 
 	locationRepo := location.NewRepository(rdb)
 	locationService := location.NewService(locationRepo)

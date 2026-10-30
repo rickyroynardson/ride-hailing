@@ -22,7 +22,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, matchingService *
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
-	gs := grpc.NewServer(grpc.ChainUnaryInterceptor(
+	gs := grpc.NewServer(grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		grpcserver.Logging(lg, errorCodes),
 		grpcserver.Auth(verifier, methodAccess),

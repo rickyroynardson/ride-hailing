@@ -12,10 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/config"
@@ -41,6 +43,12 @@ func main() {
 
 	ctx := context.Background()
 
+	shutdownTracing, err := telemetry.Setup(ctx, cfg.ServiceName)
+	if err != nil {
+		lg.Fatal("failed to set up tracing", zap.Error(err))
+	}
+	defer shutdownTracing(context.Background())
+
 	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
 		lg.Fatal("failed to connect postgres", zap.Error(err))
@@ -61,6 +69,7 @@ func main() {
 	clientOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		grpcserver.ClientTracing(),
 	}
 	locationConn, err := grpc.NewClient(cfg.LocationAddr, clientOpts...)
 	if err != nil {

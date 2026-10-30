@@ -13,10 +13,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -36,6 +40,8 @@ const (
 
 type console struct {
 	jwtSecret []byte
+	// jaegerURL is where the page links each call's trace; the browser opens it, so it is the host-side address.
+	jaegerURL string
 
 	auth     userv1.AuthServiceClient
 	user     userv1.UserServiceClient
@@ -98,12 +104,31 @@ type callEntry struct {
 	Error      string          `json:"error,omitempty"`
 	DurationMs float64         `json:"durationMs"`
 	Heartbeat  bool            `json:"heartbeat"`
+	// TraceID opens the call's whole journey in Jaeger; empty for untraced heartbeats or with tracing off.
+	TraceID string `json:"traceId,omitempty"`
 }
 
 // call runs one gRPC call with the given bearer token and records it in the call log.
 func (c *console) call(who, method, token string, heartbeat bool, req proto.Message, fn func(ctx context.Context) (proto.Message, error)) (proto.Message, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	// Each call starts the trace of what it causes across the services. Heartbeats stay untraced: a driver's
+	// location every 4s would bury everything else in Jaeger (the log hides them by default for the same reason).
+	var traceID string
+	if heartbeat {
+		ctx = telemetry.Untraced(ctx)
+	} else {
+		var span trace.Span
+		// Named after the actor's action, e.g. "rider-1: CreateRide", so a trace's first line reads as what the
+		// user did; the gRPC client span below it carries the full method.
+		ctx, span = otel.Tracer("devconsole").Start(ctx, who+": "+method[strings.LastIndex(method, "/")+1:],
+			trace.WithAttributes(attribute.String("devconsole.actor", who)))
+		defer span.End()
+		if sc := span.SpanContext(); sc.IsValid() {
+			traceID = sc.TraceID().String()
+		}
+	}
 	if token != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 	}
@@ -114,6 +139,7 @@ func (c *console) call(who, method, token string, heartbeat bool, req proto.Mess
 		At: start, Actor: who, Method: method, Heartbeat: heartbeat,
 		Request: marshal(req), Response: marshal(res),
 		Code: status.Code(err).String(), DurationMs: float64(time.Since(start).Microseconds()) / 1000,
+		TraceID: traceID,
 	}
 	if err != nil {
 		e.Error = status.Convert(err).Message()

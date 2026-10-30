@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type MatchingRepository struct {
@@ -77,17 +79,23 @@ func (r *MatchingRepository) CreateOffer(ctx context.Context, rideID, driverID s
 
 // CreateRequest records that the ride needs a driver. A retried StartMatching keeps the first request, so its
 // deadline isn't pushed back. It returns the request's status.
-func (r *MatchingRepository) CreateRequest(ctx context.Context, rideID string, pickup Location, deadline time.Time) (string, error) {
+func (r *MatchingRepository) CreateRequest(ctx context.Context, rideID string, pickup Location, deadline time.Time) (status string, err error) {
+	// The request queues follow-up work (re-offers, confirming an accept, giving up) that Tick does later: a
+	// PRODUCER span whose stored context makes that work its CONSUMER children in the same trace.
+	ctx, end := telemetry.StartProducer(ctx, "match_request publish",
+		attribute.String("messaging.system", "match_requests"), attribute.String("messaging.operation.type", "publish"),
+		attribute.String("ride.id", rideID))
+	defer func() { end(err) }()
+
 	if _, err := r.DB.Exec(ctx,
-		`INSERT INTO match_requests(ride_id, pickup_lat, pickup_lng, deadline_at) VALUES ($1, $2, $3, $4)
+		`INSERT INTO match_requests(ride_id, pickup_lat, pickup_lng, deadline_at, trace_parent) VALUES ($1, $2, $3, $4, NULLIF($5, ''))
 		ON CONFLICT (ride_id) DO NOTHING`,
-		rideID, pickup.Lat, pickup.Lng, deadline,
+		rideID, pickup.Lat, pickup.Lng, deadline, telemetry.TraceParent(ctx),
 	); err != nil {
 		return "", err
 	}
 
-	var status string
-	err := r.DB.QueryRow(ctx, `SELECT status FROM match_requests WHERE ride_id = $1`, rideID).Scan(&status)
+	err = r.DB.QueryRow(ctx, `SELECT status FROM match_requests WHERE ride_id = $1`, rideID).Scan(&status)
 	return status, err
 }
 
@@ -118,7 +126,7 @@ func (r *MatchingRepository) GiveUp(ctx context.Context) ([]string, error) {
 // was declined, or no driver was available yet. Oldest first, so long-waiting riders aren't starved.
 func (r *MatchingRepository) WaitingRequests(ctx context.Context, limit int) ([]StartInput, error) {
 	rows, err := r.DB.Query(ctx,
-		`SELECT m.ride_id, m.pickup_lat, m.pickup_lng FROM match_requests m
+		`SELECT m.ride_id, m.pickup_lat, m.pickup_lng, COALESCE(m.trace_parent, '') FROM match_requests m
 		WHERE m.status = 'matching'
 		AND NOT EXISTS (SELECT 1 FROM offers o WHERE o.ride_id = m.ride_id AND o.status IN ('pending', 'accepted'))
 		ORDER BY m.created_at LIMIT $1`,
@@ -128,7 +136,7 @@ func (r *MatchingRepository) WaitingRequests(ctx context.Context, limit int) ([]
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (StartInput, error) {
 		in := StartInput{Pickup: &Location{}}
-		err := row.Scan(&in.RideID, &in.Pickup.Lat, &in.Pickup.Lng)
+		err := row.Scan(&in.RideID, &in.Pickup.Lat, &in.Pickup.Lng, &in.TraceParent)
 		return in, err
 	})
 }
@@ -199,14 +207,14 @@ func (r *MatchingRepository) FinishRequest(ctx context.Context, rideID, status s
 // usually because AcceptOffer couldn't reach it.
 func (r *MatchingRepository) UnconfirmedAccepts(ctx context.Context, limit int) ([]Offer, error) {
 	rows, err := r.DB.Query(ctx,
-		`SELECT o.id, o.ride_id, o.driver_id, o.expires_at FROM offers o JOIN match_requests m ON m.ride_id = o.ride_id
+		`SELECT o.id, o.ride_id, o.driver_id, o.expires_at, COALESCE(m.trace_parent, '') FROM offers o JOIN match_requests m ON m.ride_id = o.ride_id
 		WHERE o.status = 'accepted' AND m.status = 'matching' ORDER BY o.updated_at LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Offer, error) {
 		var o Offer
-		err := row.Scan(&o.ID, &o.RideID, &o.DriverID, &o.ExpiresAt)
+		err := row.Scan(&o.ID, &o.RideID, &o.DriverID, &o.ExpiresAt, &o.TraceParent)
 		return o, err
 	})
 }
@@ -227,13 +235,28 @@ func (r *MatchingRepository) MatchingRequest(ctx context.Context, rideID string)
 }
 
 // UnnotifiedNoDriver returns requests that ended no_driver but ride hasn't confirmed knowing yet.
-func (r *MatchingRepository) UnnotifiedNoDriver(ctx context.Context, limit int) ([]string, error) {
+func (r *MatchingRepository) UnnotifiedNoDriver(ctx context.Context, limit int) ([]NoDriverRequest, error) {
 	rows, err := r.DB.Query(ctx,
-		`SELECT ride_id FROM match_requests WHERE status = 'no_driver' AND ride_notified_at IS NULL ORDER BY updated_at LIMIT $1`, limit)
+		`SELECT ride_id, COALESCE(trace_parent, '') FROM match_requests
+		WHERE status = 'no_driver' AND ride_notified_at IS NULL ORDER BY updated_at LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (NoDriverRequest, error) {
+		var n NoDriverRequest
+		err := row.Scan(&n.RideID, &n.TraceParent)
+		return n, err
+	})
+}
+
+// RequestTraceParent returns the stored trace of the ride's match request, or "".
+func (r *MatchingRepository) RequestTraceParent(ctx context.Context, rideID string) (string, error) {
+	var tp string
+	err := r.DB.QueryRow(ctx, `SELECT COALESCE(trace_parent, '') FROM match_requests WHERE ride_id = $1`, rideID).Scan(&tp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return tp, err
 }
 
 func (r *MatchingRepository) MarkRideNotified(ctx context.Context, rideID string) error {
