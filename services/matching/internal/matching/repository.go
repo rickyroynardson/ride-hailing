@@ -141,12 +141,23 @@ func (r *MatchingRepository) WaitingRequests(ctx context.Context, limit int) ([]
 	})
 }
 
-// HasAcceptedOffer reports whether a driver accepted the ride and ride hasn't confirmed it yet (or has, and the
-// request is about to be marked matched). Either way, nobody else may be offered the ride.
-func (r *MatchingRepository) HasAcceptedOffer(ctx context.Context, rideID string) (bool, error) {
-	var ok bool
-	err := r.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM offers WHERE ride_id = $1 AND status = 'accepted')`, rideID).Scan(&ok)
-	return ok, err
+// OpenOffer returns the ride's pending or accepted offer, or nil if it has neither. A pending offer wins: the
+// unique index allows one per ride, while an accepted one only blocks new offers until ride confirms it.
+func (r *MatchingRepository) OpenOffer(ctx context.Context, rideID string) (*Offer, string, error) {
+	var o Offer
+	var status string
+	err := r.DB.QueryRow(ctx,
+		`SELECT id, ride_id, driver_id, expires_at, status FROM offers
+		WHERE ride_id = $1 AND status IN ('pending', 'accepted') ORDER BY status = 'pending' DESC LIMIT 1`,
+		rideID,
+	).Scan(&o.ID, &o.RideID, &o.DriverID, &o.ExpiresAt, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	return &o, status, nil
 }
 
 // DriverPendingOffer returns the driver's unexpired pending offer with its pickup, or nil.
@@ -219,19 +230,20 @@ func (r *MatchingRepository) UnconfirmedAccepts(ctx context.Context, limit int) 
 	})
 }
 
-// MatchingRequest returns the ride's request if it is still matching, or nil.
-func (r *MatchingRepository) MatchingRequest(ctx context.Context, rideID string) (*StartInput, error) {
+// Request returns the ride's match request with its status, or nil if matching never heard of the ride.
+func (r *MatchingRepository) Request(ctx context.Context, rideID string) (*StartInput, string, error) {
 	in := StartInput{RideID: rideID, Pickup: &Location{}}
+	var status string
 	err := r.DB.QueryRow(ctx,
-		`SELECT pickup_lat, pickup_lng FROM match_requests WHERE ride_id = $1 AND status = 'matching'`, rideID,
-	).Scan(&in.Pickup.Lat, &in.Pickup.Lng)
+		`SELECT pickup_lat, pickup_lng, status, COALESCE(trace_parent, '') FROM match_requests WHERE ride_id = $1`, rideID,
+	).Scan(&in.Pickup.Lat, &in.Pickup.Lng, &status, &in.TraceParent)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return &in, nil
+	return &in, status, nil
 }
 
 // UnnotifiedNoDriver returns requests that ended no_driver but ride hasn't confirmed knowing yet.
@@ -247,16 +259,6 @@ func (r *MatchingRepository) UnnotifiedNoDriver(ctx context.Context, limit int) 
 		err := row.Scan(&n.RideID, &n.TraceParent)
 		return n, err
 	})
-}
-
-// RequestTraceParent returns the stored trace of the ride's match request, or "".
-func (r *MatchingRepository) RequestTraceParent(ctx context.Context, rideID string) (string, error) {
-	var tp string
-	err := r.DB.QueryRow(ctx, `SELECT COALESCE(trace_parent, '') FROM match_requests WHERE ride_id = $1`, rideID).Scan(&tp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	return tp, err
 }
 
 func (r *MatchingRepository) MarkRideNotified(ctx context.Context, rideID string) error {

@@ -112,12 +112,15 @@ func (s *MatchingService) Tick(ctx context.Context) error {
 // returns. Concurrent calls for one ride (a StartMatching retry racing Tick, or two replicas) create at most one
 // pending offer, thanks to the offers unique indexes.
 func (s *MatchingService) offerNext(ctx context.Context, in StartInput) (*Offer, error) {
-	if o, err := s.repository.PendingOffer(ctx, in.RideID); err != nil || o != nil {
-		return o, err
-	}
-	// A driver already accepted; until ride confirms or refuses, the ride belongs to them.
-	if accepted, err := s.repository.HasAcceptedOffer(ctx, in.RideID); err != nil || accepted {
+	o, status, err := s.repository.OpenOffer(ctx, in.RideID)
+	switch {
+	case err != nil:
 		return nil, err
+	case status == "pending":
+		return o, nil
+	case status == "accepted":
+		// A driver already accepted; until ride confirms or refuses, the ride belongs to them.
+		return nil, nil
 	}
 
 	candidates, err := s.candidates(ctx, in)
@@ -238,21 +241,24 @@ func (s *MatchingService) DeclineOffer(ctx context.Context, offerID, driverID st
 	if err != nil {
 		return err
 	}
-	s.linkToRequest(ctx, rideID)
 	// Best effort: if this fails, Tick re-offers within a second. The driver's decline already succeeded.
-	if in, err := s.repository.MatchingRequest(ctx, rideID); err == nil && in != nil {
+	if in, status := s.linkToRequest(ctx, rideID); status == "matching" {
 		s.offerNext(ctx, *in)
 	}
 	return nil
 }
 
 // linkToRequest links a driver's action to the rider's request trace. The driver's tap is a separate request by a
-// different person, so it stays its own trace; the link connects the two both ways in the trace UI.
-func (s *MatchingService) linkToRequest(ctx context.Context, rideID string) {
+// different person, so it stays its own trace; the link connects the two both ways in the trace UI. It returns the
+// request and its status (nil and "" if it can't be read), so callers needing them don't query again.
+func (s *MatchingService) linkToRequest(ctx context.Context, rideID string) (*StartInput, string) {
 	telemetry.Tag(ctx, attribute.String("ride.id", rideID))
-	if tp, err := s.repository.RequestTraceParent(ctx, rideID); err == nil {
-		telemetry.LinkTo(ctx, tp)
+	in, status, err := s.repository.Request(ctx, rideID)
+	if err != nil || in == nil {
+		return nil, ""
 	}
+	telemetry.LinkTo(ctx, in.TraceParent)
+	return in, status
 }
 
 // confirm asks ride to assign an accepted offer's driver and settles the offer on ride's definite answer.
