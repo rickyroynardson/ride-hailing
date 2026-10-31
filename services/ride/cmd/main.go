@@ -82,9 +82,11 @@ func main() {
 	defer matchingConn.Close()
 	relay := outbox.NewRelay(dbpool, matchingv1.NewMatchingServiceClient(matchingConn))
 
-	// Every replica runs the relay; SKIP LOCKED splits the work, and receivers are idempotent anyway.
+	// Every replica runs the relay; SKIP LOCKED splits the work, and receivers are idempotent anyway. The listener
+	// wakes it the moment a message commits; the one-second poll remains for retries and missed notifications.
 	relayCtx, stopRelay := context.WithCancel(context.Background())
-	go loop.Run(relayCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Run)
+	go loop.Run(relayCtx, lg, "outbox listener", time.Second, 30*time.Second, relay.Listen)
+	go loop.RunWake(relayCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Wake(), relay.Run)
 
 	r := chi.NewRouter()
 

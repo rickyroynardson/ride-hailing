@@ -208,11 +208,35 @@ func TestIntegration(t *testing.T) {
 		return relay.Run(ctx)
 	}
 	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE sent_at IS NULL`) // earlier steps' rides are not this step's concern
+
+	// The listener wakes the relay when a message commits. Notify by hand until a wake-up arrives, so we know it is
+	// LISTENing before the real test.
+	listenCtx, stopListen := context.WithCancel(ctx)
+	defer stopListen()
+	go relay.Listen(listenCtx)
+	waitWake := func(within time.Duration) bool {
+		select {
+		case <-relay.Wake():
+			return true
+		case <-time.After(within):
+			return false
+		}
+	}
+	for listening := false; !listening; {
+		pool.Exec(ctx, `SELECT pg_notify('outbox', '')`)
+		listening = waitWake(100 * time.Millisecond)
+	}
+	waitWake(100 * time.Millisecond) // drain a late wake-up from the handshake
+
 	outboxRider := withToken(t, ctx, "dddddddd-0000-0000-0000-000000000001")
 	created, err := client.CreateRide(outboxRider, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !waitWake(2 * time.Second) {
+		t.Fatal("CreateRide committed a message but the relay was not woken")
+	}
+	stopListen()
 	type outboxRow struct {
 		kind, rideID string
 		attempts     int

@@ -24,6 +24,8 @@ const (
 	batchSize = 50
 	// sendTimeout bounds each delivery; a claimed message's row lock is held while it is sent.
 	sendTimeout = 3 * time.Second
+	// notifyChannel is the Postgres LISTEN/NOTIFY channel that announces new messages.
+	notifyChannel = "outbox"
 )
 
 // Message is something ride must tell another service. Kind names it in the outbox table.
@@ -62,8 +64,13 @@ func Add(ctx context.Context, tx pgx.Tx, m Message) (err error) {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO outbox(kind, payload, trace_parent) VALUES ($1, $2, NULLIF($3, ''))`,
-		m.Kind(), payload, telemetry.TraceParent(ctx))
+	if _, err = tx.Exec(ctx, `INSERT INTO outbox(kind, payload, trace_parent) VALUES ($1, $2, NULLIF($3, ''))`,
+		m.Kind(), payload, telemetry.TraceParent(ctx)); err != nil {
+		return err
+	}
+	// Wake the relays. Postgres delivers a notification only when its transaction commits, so a relay never wakes
+	// for a message it can't see yet, or for one that was rolled back.
+	_, err = tx.Exec(ctx, `SELECT pg_notify($1, '')`, notifyChannel)
 	return err
 }
 
@@ -89,10 +96,44 @@ var (
 type Relay struct {
 	db       *pgxpool.Pool
 	matching matchingv1.MatchingServiceClient
+	wake     chan struct{}
 }
 
 func NewRelay(db *pgxpool.Pool, matching matchingv1.MatchingServiceClient) *Relay {
-	return &Relay{db: db, matching: matching}
+	// Buffer one wake-up: a message added while a round runs gets its own round next, and further wake-ups in the
+	// meantime fold into it.
+	return &Relay{db: db, matching: matching, wake: make(chan struct{}, 1)}
+}
+
+// Wake receives whenever a message may be waiting; run the relay with loop.RunWake on it.
+func (r *Relay) Wake() <-chan struct{} { return r.wake }
+
+// Listen waits for new-message notifications on a dedicated connection and turns them into wake-ups, so a message
+// is sent within milliseconds instead of at the relay's next poll. It returns only on error (the connection
+// dropped); run it in a loop to reconnect. Notifications sent while it is reconnecting are lost, which is fine:
+// the relay still polls.
+func (r *Relay) Listen(ctx context.Context) error {
+	conn, err := r.db.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	// Take the connection out of the pool for good: a pooled connection still LISTENing would collect
+	// notifications for whoever borrows it next.
+	pc := conn.Hijack()
+	defer pc.Close(context.Background())
+
+	if _, err := pc.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
+		return err
+	}
+	for {
+		if _, err := pc.WaitForNotification(ctx); err != nil {
+			return err
+		}
+		select {
+		case r.wake <- struct{}{}:
+		default: // a wake-up is already pending
+		}
+	}
 }
 
 // Run delivers one batch of unsent messages, oldest first, and returns the joined delivery errors. It claims rows
