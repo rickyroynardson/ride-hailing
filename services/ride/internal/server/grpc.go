@@ -20,6 +20,7 @@ var methodAccess = map[string]grpcserver.Access{
 	"/ride.v1.RideService/FilterAvailableDrivers": grpcserver.ServicesOnly,
 	"/ride.v1.RideService/AssignDriver":           grpcserver.ServicesOnly,
 	"/ride.v1.RideService/MarkNoDriver":           grpcserver.ServicesOnly,
+	"/ride.v1.RideService/RecordPayment":          grpcserver.ServicesOnly,
 	// Reflection is a stream, so StreamAuth sees it; it lets grpcurl and Postman discover the API.
 	"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":      grpcserver.Public,
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo": grpcserver.Public,

@@ -20,6 +20,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/outbox"
@@ -83,8 +84,8 @@ func main() {
 
 	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), rideService)
 
-	// The relay delivers outbox messages (e.g. start matching) with a fresh service token per call. grpc.NewClient
-	// connects lazily, so ride starts even if matching isn't up; messages wait in the outbox until it is.
+	// The relay delivers outbox messages (e.g. start matching, charge a ride) with a fresh service token per call.
+	// grpc.NewClient connects lazily, so ride starts even if a receiver isn't up; messages wait in the outbox until it is.
 	matchingConn, err := grpc.NewClient(cfg.MatchingAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
@@ -94,10 +95,20 @@ func main() {
 		lg.Fatal("failed to create matching client", zap.Error(err))
 	}
 	defer matchingConn.Close()
-	relay := outbox.NewRelay(dbpool, matchingv1.NewMatchingServiceClient(matchingConn))
+	paymentConn, err := grpc.NewClient(cfg.PaymentAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		grpcserver.ClientTracing(),
+	)
+	if err != nil {
+		lg.Fatal("failed to create payment client", zap.Error(err))
+	}
+	defer paymentConn.Close()
+	relay := outbox.NewRelay(dbpool, lg, matchingv1.NewMatchingServiceClient(matchingConn), paymentv1.NewPaymentServiceClient(paymentConn))
 
 	// Every replica runs the relay; SKIP LOCKED splits the work, and receivers are idempotent anyway. The listener
-	// wakes it the moment a message commits; the one-second poll remains for retries and missed notifications.
+	// wakes it the moment a message commits; the one-second poll picks up retries as their backoff ends, and anything
+	// a notification missed.
 	loopCtx, stopLoops := context.WithCancel(context.Background())
 	go loop.Run(loopCtx, lg, "outbox listener", time.Second, 30*time.Second, relay.Listen)
 	go loop.RunWake(loopCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Wake(), relay.Run)

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
@@ -22,8 +23,17 @@ func NewRideServer(service *ride.RideService) *RideServer {
 	return &RideServer{service: service}
 }
 
+func (s *RideServer) EstimateFare(ctx context.Context, req *ridev1.EstimateFareRequest) (*ridev1.EstimateFareResponse, error) {
+	fare, err := s.service.EstimateFare(toLocation(req.GetPickup()), toLocation(req.GetDropoff()))
+	if err != nil {
+		return nil, err
+	}
+
+	return &ridev1.EstimateFareResponse{Fare: toMoneyProto(fare)}, nil
+}
+
 func (s *RideServer) CreateRide(ctx context.Context, req *ridev1.CreateRideRequest) (*ridev1.CreateRideResponse, error) {
-	id, err := s.service.CreateRide(ctx, ride.CreateRideInput{
+	id, fare, err := s.service.CreateRide(ctx, ride.CreateRideInput{
 		RiderID: grpcserver.CallerFrom(ctx).UserID,
 		Pickup:  toLocation(req.GetPickup()),
 		Dropoff: toLocation(req.GetDropoff()),
@@ -33,7 +43,7 @@ func (s *RideServer) CreateRide(ctx context.Context, req *ridev1.CreateRideReque
 	}
 
 	telemetry.Tag(ctx, attribute.String("ride.id", id))
-	return &ridev1.CreateRideResponse{RideId: id}, nil
+	return &ridev1.CreateRideResponse{RideId: id, Fare: toMoneyProto(fare)}, nil
 }
 
 func (s *RideServer) FilterAvailableDrivers(ctx context.Context, req *ridev1.FilterAvailableDriversRequest) (*ridev1.FilterAvailableDriversResponse, error) {
@@ -70,6 +80,19 @@ func (s *RideServer) CancelRide(ctx context.Context, req *ridev1.CancelRideReque
 	}
 
 	return &ridev1.CancelRideResponse{}, nil
+}
+
+func (s *RideServer) RecordPayment(ctx context.Context, req *ridev1.RecordPaymentRequest) (*ridev1.RecordPaymentResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
+	outcome := req.GetOutcome()
+	if outcome != ridev1.PaymentOutcome_PAYMENT_OUTCOME_PAID && outcome != ridev1.PaymentOutcome_PAYMENT_OUTCOME_FAILED {
+		return nil, fmt.Errorf("%w: outcome is required", ride.ErrInvalidInput)
+	}
+	if err := s.service.RecordPayment(ctx, req.GetRideId(), outcome == ridev1.PaymentOutcome_PAYMENT_OUTCOME_PAID); err != nil {
+		return nil, err
+	}
+
+	return &ridev1.RecordPaymentResponse{}, nil
 }
 
 func (s *RideServer) StartRide(ctx context.Context, req *ridev1.StartRideRequest) (*ridev1.StartRideResponse, error) {
@@ -129,7 +152,14 @@ func toRideProto(r ride.Ride) *ridev1.Ride {
 	if l := r.DriverLocation; l != nil {
 		res.DriverLocation = &ridev1.Location{Lat: l.Lat, Lng: l.Lng}
 	}
+	if r.FareAmount != nil && r.FareCurrency != nil {
+		res.Fare = toMoneyProto(ride.Money{Amount: *r.FareAmount, Currency: *r.FareCurrency})
+	}
 	return res
+}
+
+func toMoneyProto(m ride.Money) *ridev1.Money {
+	return &ridev1.Money{Amount: m.Amount, Currency: m.Currency}
 }
 
 // toTimestamp keeps a step that hasn't happened unset; timestamppb.New would turn it into 1970 or panic.

@@ -24,6 +24,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/outbox"
@@ -207,9 +208,14 @@ func TestIntegration(t *testing.T) {
 
 	// Outbox: CreateRide saves a "start matching" message with the ride, and the relay delivers it.
 	relayMatching := &fakeMatching{}
-	relay := outbox.NewRelay(pool, relayMatching)
+	relayPayment := &fakePayment{}
+	relay := outbox.NewRelay(pool, zap.NewNop(), relayMatching, relayPayment)
+	// runRelay ends every backoff first; the delivery tests below aren't about waiting.
 	runRelay := func() error {
 		t.Helper()
+		if _, err := pool.Exec(ctx, `UPDATE outbox SET next_attempt_at = now() WHERE sent_at IS NULL`); err != nil {
+			t.Fatal(err)
+		}
 		return relay.Run(ctx)
 	}
 	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE sent_at IS NULL`) // earlier steps' rides are not this step's concern
@@ -291,13 +297,22 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("refused CreateRide left %d outbox rows", after-before)
 	}
 
-	// Matching down: the message stays unsent, with the attempt and error recorded.
+	// Matching down: the message stays unsent, with the attempt and error recorded. The relay itself isn't failing,
+	// or its loop would back off and delay every other message too.
 	relayMatching.fail(status.Error(codes.Unavailable, "matching down"))
-	if err := runRelay(); err == nil {
-		t.Fatal("relay with matching down: want an error")
+	if err := runRelay(); err != nil {
+		t.Fatalf("relay with matching down: %v", err)
 	}
 	if r := rowFor(created.GetRideId()); r.sent || r.attempts != 1 || !strings.Contains(r.lastError, "matching down") {
 		t.Fatalf("outbox row with matching down: %+v", r)
+	}
+
+	// The failed message backs off: the next round doesn't try it again straight away.
+	if err := relay.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r := rowFor(created.GetRideId()); r.attempts != 1 {
+		t.Fatalf("retried during its backoff: %+v", r)
 	}
 
 	// Matching back: delivered once, with the ride's pickup, and not sent again.
@@ -415,6 +430,232 @@ func TestIntegration(t *testing.T) {
 	}
 	if want := []string{"start:" + toCancel.GetRideId(), "cancel:" + toCancel.GetRideId()}; fmt.Sprint(forRide) != fmt.Sprint(want) {
 		t.Fatalf("delivery order for the ride: %v, want %v", forRide, want)
+	}
+
+	// A message that can never succeed is set aside as dead, and holds back only its own ride's later messages.
+	const poisonRide = "eeeeeeee-0000-0000-0000-000000000001"
+	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE sent_at IS NULL`)
+	pool.Exec(ctx, `INSERT INTO outbox(kind, payload) VALUES ('start_matching', '{"ride_id": "`+poisonRide+`", "pickup": "not a location"}')`)
+	pool.Exec(ctx, `INSERT INTO outbox(kind, payload) VALUES ('cancel_matching', '{"ride_id": "`+poisonRide+`"}')`)
+	healthy, err := client.CreateRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000105"), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := runRelay(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var dead int
+	var deadError string
+	pool.QueryRow(ctx, `SELECT count(*), COALESCE(max(last_error), '') FROM outbox WHERE dead_at IS NOT NULL AND sent_at IS NULL`).Scan(&dead, &deadError)
+	if dead != 1 || !strings.Contains(deadError, "malformed") {
+		t.Fatalf("dead messages: %d (%s), want the one malformed start", dead, deadError)
+	}
+	for _, m := range relayMatching.sent() {
+		if m == "cancel:"+poisonRide {
+			t.Fatal("a ride's cancel overtook its dead start")
+		}
+	}
+	if r := rowFor(healthy.GetRideId()); !r.sent {
+		t.Fatalf("another ride held up by a dead message: %+v", r)
+	}
+	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE payload->>'ride_id' = $1`, poisonRide)
+
+	// Receivers refusing a message outright is permanent too.
+	relayMatching.failStart(status.Error(codes.InvalidArgument, "refused"))
+	refused, err := client.CreateRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000106"), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRelay()
+	relayMatching.failStart(nil)
+	var refusedDead bool
+	pool.QueryRow(ctx, `SELECT dead_at IS NOT NULL FROM outbox WHERE payload->>'ride_id' = $1`, refused.GetRideId()).Scan(&refusedDead)
+	if !refusedDead {
+		t.Fatal("InvalidArgument from a receiver was not treated as permanent")
+	}
+
+	// EstimateFare and CreateRide agree, and the fare is fixed on the ride and shown in it.
+	_, err = client.EstimateFare(rider, &ridev1.EstimateFareRequest{Pickup: pickup})
+	wantCode(t, "estimate without dropoff", err, codes.InvalidArgument)
+	estimate, err := client.EstimateFare(rider, &ridev1.EstimateFareRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const fareRider, fareDriver = "dddddddd-0000-0000-0000-000000000107", "cccccccc-0000-0000-0000-000000000020"
+	fareCtx, fareDriverCtx := withToken(t, ctx, fareRider), withToken(t, ctx, fareDriver)
+	priced, err := client.CreateRide(fareCtx, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate.GetFare().GetAmount() <= 0 || priced.GetFare().GetAmount() != estimate.GetFare().GetAmount() || priced.GetFare().GetCurrency() != "IDR" {
+		t.Fatalf("estimate %v, booked %v", estimate.GetFare(), priced.GetFare())
+	}
+
+	// Completing the trip queues exactly one charge for the fixed fare, with the ride, however often it is retried.
+	if err := assign(priced.GetRideId(), fareDriver); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.StartRide(fareDriverCtx, &ridev1.StartRideRequest{RideId: priced.GetRideId()}); err != nil {
+		t.Fatal(err)
+	}
+	chargesFor := func(ride string) (n int, kind string, amount int64) {
+		t.Helper()
+		pool.QueryRow(ctx,
+			`SELECT count(*), COALESCE(max(payload->>'charge_kind'), ''), COALESCE(max((payload->>'amount')::bigint), 0)
+			FROM outbox WHERE kind = 'charge_ride' AND payload->>'ride_id' = $1`, ride).Scan(&n, &kind, &amount)
+		return n, kind, amount
+	}
+	paymentStatus := func(ride string) string {
+		t.Helper()
+		var st string
+		pool.QueryRow(ctx, `SELECT COALESCE(payment_status, '') FROM rides WHERE id = $1`, ride).Scan(&st)
+		return st
+	}
+	if n, _, _ := chargesFor(priced.GetRideId()); n != 0 {
+		t.Fatalf("charged before the trip finished: %d", n)
+	}
+	for range 2 {
+		if _, err := client.CompleteRide(fareDriverCtx, &ridev1.CompleteRideRequest{RideId: priced.GetRideId()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, kind, amount := chargesFor(priced.GetRideId()); n != 1 || kind != "fare" || amount != priced.GetFare().GetAmount() {
+		t.Fatalf("charge after completing: %d %s %d", n, kind, amount)
+	}
+	if got := paymentStatus(priced.GetRideId()); got != "pending" {
+		t.Fatalf("payment status after completing: %q", got)
+	}
+	for range 2 { // the ride's start first, then its charge
+		if err := runRelay(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := relayPayment.calls(); len(got) != 1 || got[0].GetRideId() != priced.GetRideId() || got[0].GetRiderId() != fareRider ||
+		got[0].GetDriverId() != fareDriver || got[0].GetKind() != paymentv1.ChargeKind_CHARGE_KIND_FARE || got[0].GetAmount().GetAmount() != priced.GetFare().GetAmount() {
+		t.Fatalf("ChargeRide calls: %v", got)
+	}
+
+	// A ride from before pricing has no fare, and finishes without a charge.
+	unpriced := newRide("dddddddd-0000-0000-0000-000000000108")
+	pool.Exec(ctx, `UPDATE rides SET status = 'in_progress', driver_id = $2 WHERE id = $1`, unpriced, "cccccccc-0000-0000-0000-000000000021")
+	if _, err := client.CompleteRide(withToken(t, ctx, "cccccccc-0000-0000-0000-000000000021"), &ridev1.CompleteRideRequest{RideId: unpriced}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _, _ := chargesFor(unpriced); n != 0 {
+		t.Fatalf("charged a ride without a fare: %d", n)
+	}
+
+	// Payment says the charge failed: the rider can't book until it says the ride is paid. A delayed "failed" after
+	// that can't bring the block back.
+	record := func(ride string, outcome ridev1.PaymentOutcome) error {
+		_, err := client.RecordPayment(service, &ridev1.RecordPaymentRequest{RideId: ride, Outcome: outcome})
+		return err
+	}
+	const paid, unpaid = ridev1.PaymentOutcome_PAYMENT_OUTCOME_PAID, ridev1.PaymentOutcome_PAYMENT_OUTCOME_FAILED
+	_, err = client.RecordPayment(fareCtx, &ridev1.RecordPaymentRequest{RideId: priced.GetRideId(), Outcome: paid})
+	wantCode(t, "a rider recording their own payment", err, codes.PermissionDenied)
+	wantCode(t, "record unknown ride", record("cccccccc-0000-0000-0000-00000000fffd", paid), codes.NotFound)
+	wantCode(t, "record no outcome", record(priced.GetRideId(), ridev1.PaymentOutcome_PAYMENT_OUTCOME_UNSPECIFIED), codes.InvalidArgument)
+
+	for range 2 {
+		if err := record(priced.GetRideId(), unpaid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = client.CreateRide(fareCtx, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	wantCode(t, "book with an unpaid ride", err, codes.FailedPrecondition)
+	for range 2 {
+		if err := record(priced.GetRideId(), paid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := record(priced.GetRideId(), unpaid); err != nil {
+		t.Fatal(err)
+	}
+	if got := paymentStatus(priced.GetRideId()); got != "paid" {
+		t.Fatalf("late failure overwrote paid: %q", got)
+	}
+	again, err := client.CreateRide(fareCtx, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatalf("book after settling: %v", err)
+	}
+
+	// Cancelling before a driver accepts is free; after, the fee is queued with the cancellation.
+	if err := cancelRide(fareCtx, again.GetRideId()); err != nil {
+		t.Fatal(err)
+	}
+	if n, _, _ := chargesFor(again.GetRideId()); n != 0 {
+		t.Fatalf("charged for a free cancellation: %d", n)
+	}
+	lateCancel, err := client.CreateRide(fareCtx, &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := assign(lateCancel.GetRideId(), fareDriver); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := cancelRide(fareCtx, lateCancel.GetRideId()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, kind, amount := chargesFor(lateCancel.GetRideId()); n != 1 || kind != "cancellation_fee" || amount != ride.CancellationFee {
+		t.Fatalf("late cancel charge: %d %s %d", n, kind, amount)
+	}
+
+	// Payment being down holds only its own messages: a charge fails and backs off, a new ride still reaches matching.
+	relayPayment.fail(status.Error(codes.Unavailable, "payment down"))
+	stillMatched, err := client.CreateRide(withToken(t, ctx, "dddddddd-0000-0000-0000-000000000109"), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runRelay(); err != nil {
+		t.Fatal(err)
+	}
+	if r := rowFor(stillMatched.GetRideId()); !r.sent {
+		t.Fatalf("matching message held up by payment: %+v", r)
+	}
+	relayPayment.fail(nil)
+	for range 3 { // the ride's cancel first, then its fee
+		if err := runRelay(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := relayPayment.calls(); got[len(got)-1].GetKind() != paymentv1.ChargeKind_CHARGE_KIND_CANCELLATION_FEE ||
+		got[len(got)-1].GetAmount().GetAmount() != ride.CancellationFee {
+		t.Fatalf("last ChargeRide: %v", got[len(got)-1])
+	}
+
+	// A hanging receiver holds no database row: while a send is stuck, its message can be locked by anyone, and a
+	// second relay leaves it alone because of the lease.
+	release := relayPayment.hold()
+	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE sent_at IS NULL`)
+	stuck, err := client.CreateRide(withToken(t, ctx, "dddddddd-0000-0000-0000-00000000010a"), &ridev1.CreateRideRequest{Pickup: pickup, Dropoff: dropoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Exec(ctx, `UPDATE outbox SET sent_at = now() WHERE payload->>'ride_id' = $1`, stuck.GetRideId())
+	pool.Exec(ctx, `INSERT INTO outbox(kind, payload) VALUES ('charge_ride', '{"ride_id": "eeeeeeee-0000-0000-0000-000000000002"}')`)
+	firstRun := make(chan error, 1)
+	go func() { firstRun <- relay.Run(ctx) }()
+	<-relayPayment.entered
+	lockCtx, cancelLock := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelLock()
+	if _, err := pool.Exec(lockCtx, `UPDATE outbox SET last_error = 'touched' WHERE payload->>'ride_id' = 'eeeeeeee-0000-0000-0000-000000000002'`); err != nil {
+		t.Fatalf("row locked during a send: %v", err)
+	}
+	callsBefore := len(relayPayment.calls())
+	if err := relay.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(relayPayment.calls()); got != callsBefore {
+		t.Fatalf("second relay sent a leased message: %d calls, want %d", got, callsBefore)
+	}
+	release()
+	if err := <-firstRun; err != nil {
+		t.Fatal(err)
 	}
 
 	// A trip that has started can't be cancelled by the rider; an accepted one can.
@@ -675,6 +916,58 @@ func testWatchRide(t *testing.T, ctx context.Context, pool *pgxpool.Pool, client
 }
 
 // fakeMatching records StartMatching and CancelMatching calls, in order, and fails them while err is set.
+type fakePayment struct {
+	paymentv1.PaymentServiceClient
+	mu      sync.Mutex
+	err     error
+	reqs    []*paymentv1.ChargeRideRequest
+	release chan struct{}
+	entered chan struct{}
+}
+
+func (f *fakePayment) ChargeRide(ctx context.Context, in *paymentv1.ChargeRideRequest, _ ...grpc.CallOption) (*paymentv1.ChargeRideResponse, error) {
+	f.mu.Lock()
+	release, entered := f.release, f.entered
+	f.mu.Unlock()
+	if release != nil {
+		entered <- struct{}{}
+		<-release
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.reqs = append(f.reqs, in)
+	return &paymentv1.ChargeRideResponse{}, nil
+}
+
+func (f *fakePayment) fail(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+func (f *fakePayment) calls() []*paymentv1.ChargeRideRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*paymentv1.ChargeRideRequest(nil), f.reqs...)
+}
+
+// hold makes ChargeRide hang until the returned function is called, like a receiver that stopped answering.
+func (f *fakePayment) hold() func() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.release, f.entered = make(chan struct{}), make(chan struct{}, 8)
+	return func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		close(f.release)
+		f.release = nil
+	}
+}
+
 type fakeMatching struct {
 	matchingv1.MatchingServiceClient
 	mu       sync.Mutex

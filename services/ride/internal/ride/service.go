@@ -98,12 +98,23 @@ func (s *RideService) driverLocation(ctx context.Context, r Ride) *Location {
 	return &Location{Lat: res.GetLocation().GetLat(), Lng: res.GetLocation().GetLng()}
 }
 
-func (s *RideService) CreateRide(ctx context.Context, in CreateRideInput) (string, error) {
+// EstimateFare prices a trip the way CreateRide will.
+func (s *RideService) EstimateFare(pickup, dropoff *Location) (Money, error) {
+	if err := validateTrip(pickup, dropoff); err != nil {
+		return Money{}, err
+	}
+	return priceFare(*pickup, *dropoff), nil
+}
+
+// CreateRide books the ride at its upfront fare, which never changes afterwards.
+func (s *RideService) CreateRide(ctx context.Context, in CreateRideInput) (string, Money, error) {
 	if err := in.Validate(); err != nil {
-		return "", err
+		return "", Money{}, err
 	}
 
-	return s.repository.CreateRide(ctx, in)
+	fare := priceFare(*in.Pickup, *in.Dropoff)
+	id, err := s.repository.CreateRide(ctx, in, fare)
+	return id, fare, err
 }
 
 // maxFilterIDs bounds one FilterAvailableDrivers call; matching asks about a few dozen nearby drivers at a time.
@@ -160,6 +171,18 @@ func (s *RideService) CancelRide(ctx context.Context, rideID, riderID string) er
 		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
 	}
 	return s.repository.CancelRide(ctx, rideID, riderID)
+}
+
+// RecordPayment takes payment's outcome for a ride. It is the only way a rider's unpaid-ride block is set or lifted.
+func (s *RideService) RecordPayment(ctx context.Context, rideID string, paid bool) error {
+	if !uuidPattern.MatchString(rideID) {
+		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+	}
+	status := "failed"
+	if paid {
+		status = "paid"
+	}
+	return s.repository.RecordPayment(ctx, rideID, status)
 }
 
 // StartRide and CompleteRide only check that the caller is the ride's driver, not that the token still carries the

@@ -16,6 +16,8 @@ var (
 	ErrDriverBusy      = errors.New("driver already has an active ride")
 	// ErrRideNotFound also covers another rider's ride, so a rider can't probe which ride IDs exist.
 	ErrRideNotFound = errors.New("ride not found")
+	// ErrPaymentOverdue blocks new rides until the rider settles a declined charge.
+	ErrPaymentOverdue = errors.New("rider has an unpaid ride")
 )
 
 type Location struct {
@@ -37,6 +39,9 @@ type Ride struct {
 	AcceptedAt     *time.Time
 	StartedAt      *time.Time
 	CompletedAt    *time.Time
+	// FareAmount and FareCurrency are nil on rides from before pricing.
+	FareAmount   *int64
+	FareCurrency *string
 }
 
 // hasActiveDriver reports whether a driver is heading to the pickup or on the trip.
@@ -57,15 +62,19 @@ type CreateRideInput struct {
 }
 
 func (in CreateRideInput) Validate() error {
-	if in.Pickup == nil || in.Dropoff == nil {
+	return validateTrip(in.Pickup, in.Dropoff)
+}
+
+func validateTrip(pickup, dropoff *Location) error {
+	if pickup == nil || dropoff == nil {
 		return fmt.Errorf("%w: pickup and dropoff are required", ErrInvalidInput)
 	}
-	for _, l := range []Location{*in.Pickup, *in.Dropoff} {
+	for _, l := range []Location{*pickup, *dropoff} {
 		if l.Lat < -90 || l.Lat > 90 || l.Lng < -180 || l.Lng > 180 {
 			return fmt.Errorf("%w: lat must be within ±90 and lng within ±180", ErrInvalidInput)
 		}
 	}
-	if *in.Pickup == *in.Dropoff {
+	if *pickup == *dropoff {
 		return fmt.Errorf("%w: pickup and dropoff must differ", ErrInvalidInput)
 	}
 
