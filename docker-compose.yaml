@@ -92,6 +92,22 @@ services:
       postgres:
         condition: service_healthy
 
+  payment:
+    container_name: payment-service
+    build:
+      context: .
+      dockerfile: services/payment/Dockerfile
+    ports:
+      - "127.0.0.1:8084:8080"
+      - "127.0.0.1:50055:50051"
+    environment:
+      POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/payments?sslmode=disable"
+      JWT_SECRET: "dev-secret-change-me"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Development-only UI: holds the JWT secret and reads every service's database. Never deploy it.
   devconsole:
     container_name: devconsole
@@ -105,9 +121,11 @@ services:
       RIDE_ADDR: "ride:50051"
       LOCATION_ADDR: "location:50051"
       MATCHING_ADDR: "matching:50051"
+      PAYMENT_ADDR: "payment:50051"
       USERS_DB_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
       RIDES_DB_URL: "postgres://postgres:postgres@postgres:5432/rides?sslmode=disable"
       MATCHING_DB_URL: "postgres://postgres:postgres@postgres:5432/matching?sslmode=disable"
+      PAYMENTS_DB_URL: "postgres://postgres:postgres@postgres:5432/payments?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
       JWT_SECRET: "dev-secret-change-me"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
@@ -123,6 +141,8 @@ services:
       location:
         condition: service_started
       matching:
+        condition: service_started
+      payment:
         condition: service_started
 
   otel-collector:
@@ -186,6 +206,7 @@ services:
       - ride
       - location
       - matching
+      - payment
 
 volumes:
   postgres_data:

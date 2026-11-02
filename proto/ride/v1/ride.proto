@@ -5,6 +5,7 @@ package ride.v1;
 import "google/protobuf/timestamp.proto";
 
 service RideService {
+  rpc EstimateFare(EstimateFareRequest) returns (EstimateFareResponse);
   rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
   rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
   rpc AssignDriver(AssignDriverRequest) returns (AssignDriverResponse);
@@ -13,6 +14,7 @@ service RideService {
   rpc StartRide(StartRideRequest) returns (StartRideResponse);
   rpc CompleteRide(CompleteRideRequest) returns (CompleteRideResponse);
   rpc WatchRide(WatchRideRequest) returns (stream WatchRideResponse);
+  rpc RecordPayment(RecordPaymentRequest) returns (RecordPaymentResponse);
 }
 
 message Location {
@@ -20,6 +22,23 @@ message Location {
   double lng = 2;
 }
 
+// An amount in the currency's smallest unit used here: whole rupiah for IDR.
+message Money {
+  int64 amount = 1;
+  string currency = 2;
+}
+
+// What a ride between these points would cost. CreateRide prices it the same way and fixes the fare on the ride.
+message EstimateFareRequest {
+  Location pickup = 1;
+  Location dropoff = 2;
+}
+
+message EstimateFareResponse {
+  Money fare = 1;
+}
+
+// FAILED_PRECONDITION: the rider has an unpaid ride; they must settle it first.
 message CreateRideRequest {
   Location pickup = 1;
   Location dropoff = 2;
@@ -27,6 +46,7 @@ message CreateRideRequest {
 
 message CreateRideResponse {
   string ride_id = 1;
+  Money fare = 2;
 }
 
 message FilterAvailableDriversRequest {
@@ -79,6 +99,21 @@ message CompleteRideRequest {
 
 message CompleteRideResponse {}
 
+// Payment reports how the ride's charge ended. Idempotent, and PAID is final: a late FAILED can't undo it.
+// NOT_FOUND: no such ride.
+message RecordPaymentRequest {
+  string ride_id = 1;
+  PaymentOutcome outcome = 2;
+}
+
+message RecordPaymentResponse {}
+
+enum PaymentOutcome {
+  PAYMENT_OUTCOME_UNSPECIFIED = 0;
+  PAYMENT_OUTCOME_PAID = 1;
+  PAYMENT_OUTCOME_FAILED = 2;
+}
+
 message WatchRideRequest {
   string ride_id = 1;
 }
@@ -99,6 +134,7 @@ message Ride {
   google.protobuf.Timestamp accepted_at = 9;
   google.protobuf.Timestamp started_at = 10;
   google.protobuf.Timestamp completed_at = 11;
+  Money fare = 12;
 }
 
 enum RideStatus {

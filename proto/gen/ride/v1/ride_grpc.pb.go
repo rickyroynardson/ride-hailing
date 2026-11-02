@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	RideService_EstimateFare_FullMethodName           = "/ride.v1.RideService/EstimateFare"
 	RideService_CreateRide_FullMethodName             = "/ride.v1.RideService/CreateRide"
 	RideService_FilterAvailableDrivers_FullMethodName = "/ride.v1.RideService/FilterAvailableDrivers"
 	RideService_AssignDriver_FullMethodName           = "/ride.v1.RideService/AssignDriver"
@@ -27,12 +28,14 @@ const (
 	RideService_StartRide_FullMethodName              = "/ride.v1.RideService/StartRide"
 	RideService_CompleteRide_FullMethodName           = "/ride.v1.RideService/CompleteRide"
 	RideService_WatchRide_FullMethodName              = "/ride.v1.RideService/WatchRide"
+	RideService_RecordPayment_FullMethodName          = "/ride.v1.RideService/RecordPayment"
 )
 
 // RideServiceClient is the client API for RideService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RideServiceClient interface {
+	EstimateFare(ctx context.Context, in *EstimateFareRequest, opts ...grpc.CallOption) (*EstimateFareResponse, error)
 	CreateRide(ctx context.Context, in *CreateRideRequest, opts ...grpc.CallOption) (*CreateRideResponse, error)
 	FilterAvailableDrivers(ctx context.Context, in *FilterAvailableDriversRequest, opts ...grpc.CallOption) (*FilterAvailableDriversResponse, error)
 	AssignDriver(ctx context.Context, in *AssignDriverRequest, opts ...grpc.CallOption) (*AssignDriverResponse, error)
@@ -41,6 +44,7 @@ type RideServiceClient interface {
 	StartRide(ctx context.Context, in *StartRideRequest, opts ...grpc.CallOption) (*StartRideResponse, error)
 	CompleteRide(ctx context.Context, in *CompleteRideRequest, opts ...grpc.CallOption) (*CompleteRideResponse, error)
 	WatchRide(ctx context.Context, in *WatchRideRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchRideResponse], error)
+	RecordPayment(ctx context.Context, in *RecordPaymentRequest, opts ...grpc.CallOption) (*RecordPaymentResponse, error)
 }
 
 type rideServiceClient struct {
@@ -49,6 +53,16 @@ type rideServiceClient struct {
 
 func NewRideServiceClient(cc grpc.ClientConnInterface) RideServiceClient {
 	return &rideServiceClient{cc}
+}
+
+func (c *rideServiceClient) EstimateFare(ctx context.Context, in *EstimateFareRequest, opts ...grpc.CallOption) (*EstimateFareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EstimateFareResponse)
+	err := c.cc.Invoke(ctx, RideService_EstimateFare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *rideServiceClient) CreateRide(ctx context.Context, in *CreateRideRequest, opts ...grpc.CallOption) (*CreateRideResponse, error) {
@@ -140,10 +154,21 @@ func (c *rideServiceClient) WatchRide(ctx context.Context, in *WatchRideRequest,
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RideService_WatchRideClient = grpc.ServerStreamingClient[WatchRideResponse]
 
+func (c *rideServiceClient) RecordPayment(ctx context.Context, in *RecordPaymentRequest, opts ...grpc.CallOption) (*RecordPaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordPaymentResponse)
+	err := c.cc.Invoke(ctx, RideService_RecordPayment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RideServiceServer is the server API for RideService service.
 // All implementations must embed UnimplementedRideServiceServer
 // for forward compatibility.
 type RideServiceServer interface {
+	EstimateFare(context.Context, *EstimateFareRequest) (*EstimateFareResponse, error)
 	CreateRide(context.Context, *CreateRideRequest) (*CreateRideResponse, error)
 	FilterAvailableDrivers(context.Context, *FilterAvailableDriversRequest) (*FilterAvailableDriversResponse, error)
 	AssignDriver(context.Context, *AssignDriverRequest) (*AssignDriverResponse, error)
@@ -152,6 +177,7 @@ type RideServiceServer interface {
 	StartRide(context.Context, *StartRideRequest) (*StartRideResponse, error)
 	CompleteRide(context.Context, *CompleteRideRequest) (*CompleteRideResponse, error)
 	WatchRide(*WatchRideRequest, grpc.ServerStreamingServer[WatchRideResponse]) error
+	RecordPayment(context.Context, *RecordPaymentRequest) (*RecordPaymentResponse, error)
 	mustEmbedUnimplementedRideServiceServer()
 }
 
@@ -162,6 +188,9 @@ type RideServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRideServiceServer struct{}
 
+func (UnimplementedRideServiceServer) EstimateFare(context.Context, *EstimateFareRequest) (*EstimateFareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EstimateFare not implemented")
+}
 func (UnimplementedRideServiceServer) CreateRide(context.Context, *CreateRideRequest) (*CreateRideResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateRide not implemented")
 }
@@ -186,6 +215,9 @@ func (UnimplementedRideServiceServer) CompleteRide(context.Context, *CompleteRid
 func (UnimplementedRideServiceServer) WatchRide(*WatchRideRequest, grpc.ServerStreamingServer[WatchRideResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchRide not implemented")
 }
+func (UnimplementedRideServiceServer) RecordPayment(context.Context, *RecordPaymentRequest) (*RecordPaymentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecordPayment not implemented")
+}
 func (UnimplementedRideServiceServer) mustEmbedUnimplementedRideServiceServer() {}
 func (UnimplementedRideServiceServer) testEmbeddedByValue()                     {}
 
@@ -205,6 +237,24 @@ func RegisterRideServiceServer(s grpc.ServiceRegistrar, srv RideServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&RideService_ServiceDesc, srv)
+}
+
+func _RideService_EstimateFare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EstimateFareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).EstimateFare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_EstimateFare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).EstimateFare(ctx, req.(*EstimateFareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _RideService_CreateRide_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -344,6 +394,24 @@ func _RideService_WatchRide_Handler(srv interface{}, stream grpc.ServerStream) e
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RideService_WatchRideServer = grpc.ServerStreamingServer[WatchRideResponse]
 
+func _RideService_RecordPayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordPaymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).RecordPayment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_RecordPayment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).RecordPayment(ctx, req.(*RecordPaymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RideService_ServiceDesc is the grpc.ServiceDesc for RideService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -351,6 +419,10 @@ var RideService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "ride.v1.RideService",
 	HandlerType: (*RideServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "EstimateFare",
+			Handler:    _RideService_EstimateFare_Handler,
+		},
 		{
 			MethodName: "CreateRide",
 			Handler:    _RideService_CreateRide_Handler,
@@ -378,6 +450,10 @@ var RideService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompleteRide",
 			Handler:    _RideService_CompleteRide_Handler,
+		},
+		{
+			MethodName: "RecordPayment",
+			Handler:    _RideService_RecordPayment_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

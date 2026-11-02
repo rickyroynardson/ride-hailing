@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package payment.v1;
+
+service PaymentService {
+  rpc ChargeRide(ChargeRideRequest) returns (ChargeRideResponse) {}
+  rpc GetCharge(GetChargeRequest) returns (GetChargeResponse) {}
+  rpc RetryCharge(RetryChargeRequest) returns (RetryChargeResponse) {}
+  rpc SetPaymentMethod(SetPaymentMethodRequest) returns (SetPaymentMethodResponse) {}
+  rpc GetEarnings(GetEarningsRequest) returns (GetEarningsResponse) {}
+}
+
+// An amount in the currency's smallest unit used here: whole rupiah for IDR.
+message Money {
+  int64 amount = 1;
+  string currency = 2;
+}
+
+enum ChargeKind {
+  CHARGE_KIND_UNSPECIFIED = 0;
+  CHARGE_KIND_FARE = 1;
+  CHARGE_KIND_CANCELLATION_FEE = 2;
+}
+
+enum ChargeStatus {
+  CHARGE_STATUS_UNSPECIFIED = 0;
+  CHARGE_STATUS_PENDING = 1;
+  CHARGE_STATUS_CAPTURED = 2;
+  CHARGE_STATUS_FAILED = 3;
+}
+
+// Records that the rider owes this and returns once it is saved; the provider is called in the background, so a slow
+// provider never holds up ride's outbox. Idempotent: a ride has one charge, and a repeat keeps the first.
+message ChargeRideRequest {
+  string ride_id = 1;
+  string rider_id = 2;
+  string driver_id = 3;
+  ChargeKind kind = 4;
+  Money amount = 5;
+}
+
+message ChargeRideResponse {}
+
+// NOT_FOUND: no charge for this ride that the caller is the rider or driver of.
+message GetChargeRequest {
+  string ride_id = 1;
+}
+
+message GetChargeResponse {
+  Charge charge = 1;
+}
+
+message Charge {
+  string charge_id = 1;
+  string ride_id = 2;
+  ChargeKind kind = 3;
+  ChargeStatus status = 4;
+  Money amount = 5;
+  // Why the provider refused; empty unless the status is failed.
+  string decline_reason = 6;
+}
+
+// The rider tries a declined charge again, usually after SetPaymentMethod. Idempotent: a pending or captured charge
+// is left as it is. NOT_FOUND: no charge on this ride for this rider.
+message RetryChargeRequest {
+  string ride_id = 1;
+}
+
+message RetryChargeResponse {}
+
+// Sets the caller's card, as the opaque token a provider issues. The fake provider's tokens are tok_ok, tok_declined
+// and tok_lost_response.
+message SetPaymentMethodRequest {
+  string token = 1;
+}
+
+message SetPaymentMethodResponse {}
+
+// What the ledger says the calling driver has earned, per currency.
+message GetEarningsRequest {}
+
+message GetEarningsResponse {
+  repeated Money balances = 1;
+}

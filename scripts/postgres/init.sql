@@ -1,2 +1,3 @@
 CREATE DATABASE rides;
 CREATE DATABASE matching;
+CREATE DATABASE payments;
