@@ -16,6 +16,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"go.opentelemetry.io/otel"
@@ -48,9 +49,10 @@ type console struct {
 	ride     ridev1.RideServiceClient
 	location locationv1.LocationServiceClient
 	matching matchingv1.MatchingServiceClient
+	payment  paymentv1.PaymentServiceClient
 
-	usersDB, ridesDB, matchingDB *pgxpool.Pool
-	rdb                          *redis.Client
+	usersDB, ridesDB, matchingDB, paymentsDB *pgxpool.Pool
+	rdb                                      *redis.Client
 
 	mu     sync.Mutex
 	seq    int
@@ -79,6 +81,8 @@ type actor struct {
 	activeRideID string
 	stopWatch    context.CancelFunc
 	live         *liveRide
+	// card is the fake provider token last set; empty means the fake's default card.
+	card string
 }
 
 type actorView struct {
@@ -93,6 +97,7 @@ type actorView struct {
 	Claims      []string `json:"claims"`
 	// Live is the latest WatchRide message for the rider's ride.
 	Live *liveRide `json:"live,omitempty"`
+	Card string    `json:"card,omitempty"`
 }
 
 type latLng struct {
@@ -252,7 +257,7 @@ func (a *actor) view() actorView {
 	if !a.lastSent.IsZero() {
 		v.Location = &latLng{a.lat, a.lng}
 	}
-	v.Live = a.live
+	v.Live, v.Card = a.live, a.card
 	return v
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"google.golang.org/grpc"
@@ -73,9 +74,11 @@ func main() {
 		ride:       ridev1.NewRideServiceClient(dial(env("RIDE_ADDR", "localhost:50052"))),
 		location:   locationv1.NewLocationServiceClient(dial(env("LOCATION_ADDR", "localhost:50053"))),
 		matching:   matchingv1.NewMatchingServiceClient(dial(env("MATCHING_ADDR", "localhost:50054"))),
+		payment:    paymentv1.NewPaymentServiceClient(dial(env("PAYMENT_ADDR", "localhost:50055"))),
 		usersDB:    pool(env("USERS_DB_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")),
 		ridesDB:    pool(env("RIDES_DB_URL", "postgres://postgres:postgres@localhost:5432/rides?sslmode=disable")),
 		matchingDB: pool(env("MATCHING_DB_URL", "postgres://postgres:postgres@localhost:5432/matching?sslmode=disable")),
+		paymentsDB: pool(env("PAYMENTS_DB_URL", "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable")),
 		rdb:        redis.NewClient(redisOpts),
 		byID:       map[string]*actor{},
 		pages:      map[chan struct{}]struct{}{},
@@ -93,6 +96,11 @@ func main() {
 	mux.HandleFunc("POST /api/actors/{id}/offline", c.handleOffline)
 	mux.HandleFunc("POST /api/actors/{id}/rides", c.handleRequestRide)
 	mux.HandleFunc("POST /api/actors/{id}/rides/{ride}/cancel", c.handleCancelRide)
+	mux.HandleFunc("POST /api/actors/{id}/rides/{ride}/retry-charge", c.handleRetryCharge)
+	mux.HandleFunc("POST /api/actors/{id}/card", c.handleSetCard)
+	mux.HandleFunc("POST /api/actors/{id}/estimate", c.handleEstimateFare)
+	mux.HandleFunc("POST /api/actors/{id}/charges/{ride}", c.handleGetCharge)
+	mux.HandleFunc("POST /api/actors/{id}/earnings", c.handleGetEarnings)
 	mux.HandleFunc("POST /api/actors/{id}/rides/{ride}/{step}", c.handleTripStep)
 	mux.HandleFunc("POST /api/rides/{id}/start-matching", c.handleStartMatching)
 	mux.HandleFunc("POST /api/actors/{id}/offer", c.handleGetOffer)

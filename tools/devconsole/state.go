@@ -29,6 +29,27 @@ type rideRow struct {
 	Pickup      latLng     `json:"pickup"`
 	Dropoff     latLng     `json:"dropoff"`
 	CreatedAt   time.Time  `json:"createdAt"`
+	// Fare is zero on rides from before pricing. PaymentStatus is ride's own copy of the outcome.
+	Fare          int64  `json:"fare"`
+	Currency      string `json:"currency"`
+	PaymentStatus string `json:"paymentStatus"`
+}
+
+type chargeRow struct {
+	RideID        string `json:"rideId"`
+	DriverID      string `json:"driverId"`
+	Kind          string `json:"kind"`
+	Status        string `json:"status"`
+	Amount        int64  `json:"amount"`
+	Currency      string `json:"currency"`
+	DeclineReason string `json:"declineReason"`
+	Attempts      int    `json:"attempts"`
+	LastError     string `json:"lastError"`
+}
+
+type earningRow struct {
+	DriverID string `json:"driverId"`
+	Amount   int64  `json:"amount"`
 }
 
 type matchRequestRow struct {
@@ -74,10 +95,11 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 
 	rides, err := collect(ctx, c.ridesDB, `SELECT id, rider_id, COALESCE(driver_id::text, ''), status, COALESCE(cancel_reason, ''),
 		accepted_at, started_at, completed_at,
-		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at FROM rides ORDER BY created_at DESC LIMIT 50`,
+		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at,
+		COALESCE(fare_amount, 0), COALESCE(fare_currency, ''), COALESCE(payment_status, '') FROM rides ORDER BY created_at DESC LIMIT 50`,
 		func(row pgx.CollectableRow) (rideRow, error) {
 			var x rideRow
-			err := row.Scan(&x.ID, &x.RiderID, &x.DriverID, &x.Status, &x.Reason, &x.AcceptedAt, &x.StartedAt, &x.CompletedAt, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.CreatedAt)
+			err := row.Scan(&x.ID, &x.RiderID, &x.DriverID, &x.Status, &x.Reason, &x.AcceptedAt, &x.StartedAt, &x.CompletedAt, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.CreatedAt, &x.Fare, &x.Currency, &x.PaymentStatus)
 			return x, err
 		})
 	if err != nil {
@@ -108,6 +130,30 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 		errs["match_requests"] = err.Error()
 	}
 	state["matchRequests"] = requests
+
+	charges, err := collect(ctx, c.paymentsDB, `SELECT ride_id, driver_id, kind, status, amount, currency,
+		COALESCE(decline_reason, ''), attempts, COALESCE(last_error, '') FROM charges ORDER BY created_at DESC LIMIT 50`,
+		func(row pgx.CollectableRow) (chargeRow, error) {
+			var x chargeRow
+			err := row.Scan(&x.RideID, &x.DriverID, &x.Kind, &x.Status, &x.Amount, &x.Currency, &x.DeclineReason, &x.Attempts, &x.LastError)
+			return x, err
+		})
+	if err != nil {
+		errs["charges"] = err.Error()
+	}
+	state["charges"] = charges
+
+	earnings, err := collect(ctx, c.paymentsDB, `SELECT substr(account, 8), -sum(amount)::bigint FROM ledger_entries
+		WHERE account LIKE 'driver:%' GROUP BY account`,
+		func(row pgx.CollectableRow) (earningRow, error) {
+			var x earningRow
+			err := row.Scan(&x.DriverID, &x.Amount)
+			return x, err
+		})
+	if err != nil {
+		errs["ledger"] = err.Error()
+	}
+	state["earnings"] = earnings
 
 	state["errors"] = errs
 	writeJSON(w, http.StatusOK, state)

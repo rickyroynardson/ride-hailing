@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"time"
 
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
+	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -99,6 +101,148 @@ func (c *console) handleCancelRide(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleEstimateFare prices the rider's drafted trip, the way a rider app does before they book.
+func (c *console) handleEstimateFare(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil || a.Kind != "rider" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a rider"})
+		return
+	}
+	var body struct {
+		Pickup  latLng `json:"pickup"`
+		Dropoff latLng `json:"dropoff"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {pickup, dropoff}"})
+		return
+	}
+	a.mu.Lock()
+	tok, err := c.token(a)
+	a.mu.Unlock()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &ridev1.EstimateFareRequest{
+		Pickup:  &ridev1.Location{Lat: body.Pickup.Lat, Lng: body.Pickup.Lng},
+		Dropoff: &ridev1.Location{Lat: body.Dropoff.Lat, Lng: body.Dropoff.Lng},
+	}
+	res, err := c.call(a.Name, "ride.v1.RideService/EstimateFare", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.ride.EstimateFare(ctx, req)
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, marshal(res))
+}
+
+// handleGetCharge calls GetCharge as the rider, the way a rider app checks how payment went.
+func (c *console) handleGetCharge(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	a.mu.Lock()
+	tok, err := c.token(a)
+	a.mu.Unlock()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &paymentv1.GetChargeRequest{RideId: r.PathValue("ride")}
+	res, err := c.call(a.Name, "payment.v1.PaymentService/GetCharge", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.payment.GetCharge(ctx, req)
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, marshal(res))
+}
+
+// handleGetEarnings calls GetEarnings as the driver.
+func (c *console) handleGetEarnings(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil || a.Kind != "driver" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a driver"})
+		return
+	}
+	a.mu.Lock()
+	tok, err := c.token(a)
+	a.mu.Unlock()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &paymentv1.GetEarningsRequest{}
+	res, err := c.call(a.Name, "payment.v1.PaymentService/GetEarnings", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.payment.GetEarnings(ctx, req)
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, marshal(res))
+}
+
+// handleSetCard sets the rider's card to one of the fake provider's tokens.
+func (c *console) handleSetCard(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil || a.Kind != "rider" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a rider"})
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {token}"})
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	tok, err := c.token(a)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &paymentv1.SetPaymentMethodRequest{Token: body.Token}
+	if _, err := c.call(a.Name, "payment.v1.PaymentService/SetPaymentMethod", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.payment.SetPaymentMethod(ctx, req)
+	}); err != nil {
+		writeErr(w, err)
+		return
+	}
+	a.card = body.Token
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleRetryCharge tries the ride's declined charge again as its rider.
+func (c *console) handleRetryCharge(w http.ResponseWriter, r *http.Request) {
+	a, err := c.actor(r.PathValue("id"))
+	if err != nil || a.Kind != "rider" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a rider"})
+		return
+	}
+	a.mu.Lock()
+	tok, err := c.token(a)
+	a.mu.Unlock()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &paymentv1.RetryChargeRequest{RideId: r.PathValue("ride")}
+	if _, err := c.call(a.Name, "payment.v1.PaymentService/RetryCharge", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.payment.RetryCharge(ctx, req)
+	}); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleTripStep starts or completes the trip as the ride's driver.
 func (c *console) handleTripStep(w http.ResponseWriter, r *http.Request) {
 	a, err := c.actor(r.PathValue("id"))
@@ -175,8 +319,8 @@ func (c *console) handleClearCalls(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleReset wipes local dev data so testing starts clean: every ride (and ride's outbox), offer, match request
-// and driver location, plus the users the console created (their refresh tokens and driver profiles go with them by
+// handleReset wipes local dev data so testing starts clean: every ride (and ride's outbox), offer, match request,
+// charge, ledger entry and driver location, plus the users the console created (their refresh tokens and driver profiles go with them by
 // cascade). Users you registered yourself are kept.
 func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
@@ -206,6 +350,8 @@ func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 		{"matchRequests", exec(ctx, c.matchingDB.Exec, `DELETE FROM match_requests`)},
 		{"rides", exec(ctx, c.ridesDB.Exec, `DELETE FROM rides`)},
 		{"outbox", exec(ctx, c.ridesDB.Exec, `DELETE FROM outbox`)},
+		// TRUNCATE, because the ledger refuses deletes; that is the point of it outside a dev reset.
+		{"payments", exec(ctx, c.paymentsDB.Exec, `TRUNCATE ledger_entries, charges, payment_methods`)},
 		{"consoleUsers", exec(ctx, c.usersDB.Exec, `DELETE FROM users WHERE email LIKE 'dev-%@devconsole.local'`)},
 		{"redisKeys", func() (int64, error) {
 			keys := []string{"drivers:geo", "drivers:last_seen"}

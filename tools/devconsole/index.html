@@ -126,6 +126,7 @@ const short = id => id ? id.slice(0, 8) : '—';
 const nameOf = id => (state.actors.find(a => a.id === id) || {}).name || short(id);
 const ago = t => { const s = Math.max(0, Math.round((state.now - t) / 1000)); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`; };
 const STATUS_PILL = { requested: 'info', accepted: 'ok', in_progress: 'ok', completed: '', cancelled: 'bad', pending: 'info', declined: 'warn', expired: 'warn', matching: 'info', matched: 'ok', no_driver: 'bad' };
+const CARDS = [['', 'default'], ['tok_ok', 'tok_ok'], ['tok_declined', 'tok_declined'], ['tok_lost_response', 'tok_lost_response']];
 const codeClass = c => c === 'OK' ? 'ok' : ['Internal', 'Unavailable', 'Unknown', 'DeadlineExceeded', 'DataLoss'].includes(c) ? 'bad' : 'warn';
 const outcome = o => (o || '').replace('UPDATE_OUTCOME_', '').toLowerCase();
 
@@ -169,10 +170,19 @@ async function checkOffer(id) { await api('POST', `/api/actors/${id}/offer`); ui
 async function answerOffer(id, offerId, answer) { await api('POST', `/api/actors/${id}/offers/${offerId}/${answer}`); await poll(); }
 async function tripStep(id, rideId, step) { await api('POST', `/api/actors/${id}/rides/${rideId}/${step}`); await poll(); }
 async function cancelRide(id, rideId) { await api('POST', `/api/actors/${id}/rides/${rideId}/cancel`); await poll(); }
+async function setCard(id, token) { await api('POST', `/api/actors/${id}/card`, { token: token || 'tok_ok' }); await poll(); }
+async function estimateFare(id) {
+  const res = await api('POST', `/api/actors/${id}/estimate`, ui.draft);
+  toast(`Estimated fare: Rp ${Number(res.fare.amount).toLocaleString()}`);
+  ui.tab = 'calls'; await poll();
+}
+async function getCharge(id, rideId) { await api('POST', `/api/actors/${id}/charges/${rideId}`); ui.tab = 'calls'; await poll(); }
+async function getEarnings(id) { await api('POST', `/api/actors/${id}/earnings`); ui.tab = 'calls'; await poll(); }
+async function retryCharge(id, rideId) { await api('POST', `/api/actors/${id}/rides/${rideId}/retry-charge`); await poll(); }
 async function removeActor(id) { await api('POST', `/api/actors/${id}/remove`); if (ui.selected === id) ui.selected = null; await poll(); }
 async function clearLog() { await api('POST', '/api/calls/clear'); ui.expanded.clear(); await poll(); }
 async function resetAll() {
-  if (!confirm('Reset all dev data?\n\nDeletes every ride, outbox message, offer, match request and driver location, and the users this console created. Users you registered yourself are kept.')) return;
+  if (!confirm('Reset all dev data?\n\nDeletes every ride, outbox message, offer, match request, charge, ledger entry and driver location, and the users this console created. Users you registered yourself are kept.')) return;
   const removed = await api('POST', '/api/reset');
   ui.selected = null; ui.draft = {}; ui.expanded.clear();
   toast(`Reset: ${Object.entries(removed).map(([k, n]) => `${n} ${k}`).join(', ')}`);
@@ -201,11 +211,14 @@ function renderActors() {
       if (a.lastOutcome) status += ` <span class="pill ${a.lastOutcome.startsWith('UPDATE_OUTCOME_STORED') ? 'ok' : 'warn'}">${esc(outcome(a.lastOutcome))}</span>`;
       if (a.online) actions = `<button onclick="event.stopPropagation(); goOffline('${a.id}')">Go offline</button>`;
       actions += `<button onclick="event.stopPropagation(); checkOffer('${a.id}')" title="Calls GetOffer as this driver, like the driver app polling">GetOffer</button>`;
+      actions += `<button onclick="event.stopPropagation(); getEarnings('${a.id}')" title="Calls GetEarnings as this driver">GetEarnings</button>`;
       const offer = state.offers.find(o => o.driverId === a.id && o.status === 'pending');
       const onRide = state.rides.find(r => r.driverId === a.id && ['accepted', 'in_progress'].includes(r.status));
+      const earned = (state.earnings || []).find(e => e.driverId === a.id);
+      if (earned) extra = `<div class="meta">earned Rp ${earned.amount.toLocaleString()} (ledger)</div>`;
       if (offer) {
         const left = Math.round((Date.parse(offer.expiresAt) - state.now) / 1000);
-        extra = `<div class="offer" onclick="event.stopPropagation()"><b>Offer</b> for ride <span class="mono">${short(offer.rideId)}</span> · ${left > 0 ? left + 's left' : 'expiring…'}
+        extra += `<div class="offer" onclick="event.stopPropagation()"><b>Offer</b> for ride <span class="mono">${short(offer.rideId)}</span> · ${left > 0 ? left + 's left' : 'expiring…'}
           <div class="actions"><button class="primary" onclick="answerOffer('${a.id}', '${offer.id}', 'accept')">Accept</button>
           <button onclick="answerOffer('${a.id}', '${offer.id}', 'decline')">Decline</button></div></div>`;
       } else if (onRide) {
@@ -221,11 +234,17 @@ function renderActors() {
       const shown = live ? live.status : ride && ride.status;
       if (ride) status = `<span class="pill ${STATUS_PILL[shown] || ''}">${esc(shown)}</span>${ride.driverId ? ` <span class="pill ok">${esc(nameOf(ride.driverId))}</span>` : ''}`;
       if (live) extra = `<div class="meta">WatchRide: ${live.updates} update${live.updates === 1 ? '' : 's'}${live.driverLocation ? ` · driver at ${live.driverLocation.lat.toFixed(4)}, ${live.driverLocation.lng.toFixed(4)}` : ''}</div>`;
+      if (ride && ride.fare) extra += `<div class="meta">fare Rp ${ride.fare.toLocaleString()}</div>`;
+      extra += `<div class="meta" onclick="event.stopPropagation()">card <select onchange="setCard('${a.id}', this.value)">${CARDS.map(([v, l]) => `<option value="${v}" ${v === (a.card || '') ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
       if (ride && ['requested', 'accepted'].includes(ride.status)) {
         actions += `<button onclick="event.stopPropagation(); cancelRide('${a.id}', '${ride.id}')">Cancel ride</button>`;
       }
+      const unpaid = (state.charges || []).find(c => c.rideId === a.rideId && c.status === 'failed');
+      if ((state.charges || []).some(c => c.rideId === a.rideId)) actions += `<button onclick="event.stopPropagation(); getCharge('${a.id}', '${a.rideId}')" title="Calls GetCharge as this rider">GetCharge</button>`;
+      if (unpaid) actions += `<button class="primary" onclick="event.stopPropagation(); retryCharge('${a.id}', '${unpaid.rideId}')">Retry payment</button>`;
       if (a.id === ui.selected) {
-        actions += `<button class="primary" ${ui.draft.pickup && ui.draft.dropoff ? '' : 'disabled'} onclick="event.stopPropagation(); requestRide('${a.id}')">Request ride</button>`
+        actions += `<button ${ui.draft.pickup && ui.draft.dropoff ? '' : 'disabled'} onclick="event.stopPropagation(); estimateFare('${a.id}')" title="Calls EstimateFare as this rider">Estimate fare</button>`
+          + `<button class="primary" ${ui.draft.pickup && ui.draft.dropoff ? '' : 'disabled'} onclick="event.stopPropagation(); requestRide('${a.id}')">Request ride</button>`
           + (ui.draft.pickup ? `<button onclick="event.stopPropagation(); ui.draft = {}; render()">Clear</button>` : '');
       }
     }
@@ -307,11 +326,21 @@ function renderPanel() {
       return `<span class="pill ${STATUS_PILL[m.status] || ''}">${esc(m.status)}</span>
         <div style="color:var(--muted)">${tries} offer${tries === 1 ? '' : 's'}${m.status === 'matching' ? ` · gives up in ${Math.max(0, left)}s` : ''}</div>`;
     };
-    panel.innerHTML = err('rides') + err('match_requests') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th></tr>${state.rides.map(r => `<tr>
+    const charges = Object.fromEntries((state.charges || []).map(c => [c.rideId, c]));
+    const CHARGE_PILL = { captured: 'ok', pending: 'info', failed: 'bad' };
+    const payCell = r => {
+      const c = charges[r.id];
+      const fare = r.fare ? `Rp ${r.fare.toLocaleString()}` : '—';
+      if (!c) return fare;
+      return `${fare}<div><span class="pill ${CHARGE_PILL[c.status] || ''}">${esc(c.status)}</span></div>
+        <div style="color:var(--muted)">${esc(c.kind.replace('_', ' '))} · Rp ${c.amount.toLocaleString()} · ${c.attempts} attempt${c.attempts === 1 ? '' : 's'}${c.declineReason ? ` · ${esc(c.declineReason)}` : ''}${c.lastError ? ` · ${esc(c.lastError)}` : ''}</div>`;
+    };
+    panel.innerHTML = err('rides') + err('match_requests') + err('charges') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th><th>Payment</th></tr>${state.rides.map(r => `<tr>
       <td class="mono">${short(r.id)}<div style="color:var(--muted)">${ago(Date.parse(r.createdAt))}</div></td>
       <td>${esc(nameOf(r.riderId))}</td><td>${r.driverId ? esc(nameOf(r.driverId)) : '—'}</td>
       <td><span class="pill ${STATUS_PILL[r.status] || ''}">${esc(r.status)}</span>${r.cancelReason ? `<div style="color:var(--muted)">${esc(r.cancelReason.replace('_', ' '))}</div>` : ''}${timeline(r)}</td>
       <td>${matchCell(r)}</td>
+      <td>${payCell(r)}</td>
     </tr>`).join('')}</table>` : '<div class="empty">No rides yet. Select a rider and click the map.</div>');
   } else {
     panel.innerHTML = err('offers') + (state.offers.length ? `<table><tr><th>Offer</th><th>Ride</th><th>Driver</th><th>Status</th><th>Expires</th></tr>${state.offers.map(o => {
