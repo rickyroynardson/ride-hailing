@@ -167,6 +167,46 @@ func TestIntegration(t *testing.T) {
 	}
 	wantAt("after rider go offline", there, backAt)
 
+	// GetDriverLocation is for services, and answers only for drivers online and fresh.
+	_, err = client.GetDriverLocation(driver, &locationv1.GetDriverLocationRequest{DriverId: driverID})
+	wantCode(t, "get location as user", err, codes.PermissionDenied)
+	md, err := jwtauth.NewServiceCredentials("ride-service", testSecret).GetRequestMetadata(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := metadata.AppendToOutgoingContext(ctx, "authorization", md["authorization"])
+	_, err = client.GetDriverLocation(service, &locationv1.GetDriverLocationRequest{})
+	wantCode(t, "get location without driver", err, codes.InvalidArgument)
+	position := func(id string) *locationv1.Location {
+		t.Helper()
+		res, err := client.GetDriverLocation(service, &locationv1.GetDriverLocationRequest{DriverId: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.GetLocation()
+	}
+	if l := position("never-seen"); l != nil {
+		t.Fatalf("unknown driver has location %v", l)
+	}
+	for id, seen := range map[string]time.Time{"fresh-one": time.Now(), "stale-one": time.Now().Add(-time.Hour)} {
+		rdb.GeoAdd(ctx, "drivers:geo", &redis.GeoLocation{Name: id, Latitude: 10, Longitude: 20})
+		rdb.ZAdd(ctx, "drivers:last_seen", redis.Z{Score: float64(seen.UnixMilli()), Member: id})
+		defer rdb.ZRem(ctx, "drivers:geo", id)
+		defer rdb.ZRem(ctx, "drivers:last_seen", id)
+	}
+	if l := position("fresh-one"); l == nil || math.Abs(l.GetLat()-10) > 0.001 || math.Abs(l.GetLng()-20) > 0.001 {
+		t.Fatalf("fresh driver: got %v, want 10, 20", l)
+	}
+	if l := position("stale-one"); l != nil {
+		t.Fatalf("stale driver has location %v", l)
+	}
+	// Going offline leaves a fresh last-seen marker but no position.
+	rdb.ZAdd(ctx, "drivers:last_seen", redis.Z{Score: float64(time.Now().UnixMilli()), Member: "offline-one"})
+	defer rdb.ZRem(ctx, "drivers:last_seen", "offline-one")
+	if l := position("offline-one"); l != nil {
+		t.Fatalf("offline driver has location %v", l)
+	}
+
 	// ListNearbyDrivers, around a point far from the drivers above. Drivers are written to Redis directly.
 	center := &locationv1.Location{Lat: 1.30, Lng: 103.85}
 	put := func(id string, metersNorth float64, seen time.Time) {

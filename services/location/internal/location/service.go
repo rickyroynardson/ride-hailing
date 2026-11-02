@@ -2,6 +2,7 @@ package location
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,6 +56,14 @@ func (s *LocationService) ListNearbyDrivers(ctx context.Context, in ListNearbyIn
 	}
 
 	return s.repository.FindNearby(ctx, *in.Location, in.RadiusMeters, in.Limit, time.Now().Add(-staleAfter))
+}
+
+// GetDriverLocation returns the driver's current position, or nil if they are offline or stale.
+func (s *LocationService) GetDriverLocation(ctx context.Context, driverID string) (*Location, error) {
+	if driverID == "" {
+		return nil, fmt.Errorf("%w: driver_id is required", ErrInvalidInput)
+	}
+	return s.repository.DriverLocation(ctx, driverID, time.Now().Add(-staleAfter))
 }
 
 // PruneStale removes drivers who went stale without calling GoOffline, plus expired offline markers.

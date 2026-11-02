@@ -16,6 +16,8 @@ type Config struct {
 	JWTSecret   string `mapstructure:"jwt_secret"`
 	// MatchingAddr is where the outbox relay sends matching messages; the default is the compose service name.
 	MatchingAddr string `mapstructure:"matching_addr"`
+	// LocationAddr is where WatchRide reads the driver's position; the default is the compose service name.
+	LocationAddr string `mapstructure:"location_addr"`
 }
 
 func Load() (*Config, error) {
@@ -28,6 +30,7 @@ func Load() (*Config, error) {
 	v.SetDefault("postgres_url", "")
 	v.SetDefault("jwt_secret", "")
 	v.SetDefault("matching_addr", "matching:50051")
+	v.SetDefault("location_addr", "location:50051")
 
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")

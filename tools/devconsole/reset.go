@@ -147,6 +147,9 @@ func (c *console) handleRemoveActor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.mu.Lock()
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
 	if a.Kind == "driver" && a.online {
 		close(a.stopBeat)
 		a.online = false
@@ -182,6 +185,9 @@ func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 	c.mu.Unlock()
 	for _, a := range actors {
 		a.mu.Lock()
+		if a.stopWatch != nil {
+			a.stopWatch()
+		}
 		if a.online {
 			close(a.stopBeat)
 			a.online = false

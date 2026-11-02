@@ -8,6 +8,7 @@ service LocationService {
   rpc UpdateDriverLocation(UpdateDriverLocationRequest) returns (UpdateDriverLocationResponse) {}
   rpc GoOffline(GoOfflineRequest) returns (GoOfflineResponse) {}
   rpc ListNearbyDrivers(ListNearbyDriversRequest) returns (ListNearbyDriversResponse) {}
+  rpc GetDriverLocation(GetDriverLocationRequest) returns (GetDriverLocationResponse) {}
 }
 
 message Location {
@@ -51,4 +52,12 @@ message ListNearbyDriversRequest {
 
 message ListNearbyDriversResponse {
   repeated NearbyDriver drivers = 1;
+}
+
+message GetDriverLocationRequest {
+  string driver_id = 1;
+}
+
+message GetDriverLocationResponse {
+  Location location = 1;
 }

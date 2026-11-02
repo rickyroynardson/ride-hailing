@@ -2,6 +2,7 @@ package location
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -195,6 +196,26 @@ func (r *LocationRepository) FindNearby(ctx context.Context, center Location, ra
 		}
 		count = min(count*4, maxNearbyCandidates)
 	}
+}
+
+// DriverLocation returns the driver's position, or nil if they are offline or were last seen before freshSince.
+// Stale entries are left for PruneStale.
+func (r *LocationRepository) DriverLocation(ctx context.Context, driverID string, freshSince time.Time) (*Location, error) {
+	var pos *redis.GeoPosCmd
+	var seen *redis.FloatCmd
+	_, err := r.RDB.Pipelined(ctx, func(p redis.Pipeliner) error {
+		pos = p.GeoPos(ctx, geoKey, driverID)
+		seen = p.ZScore(ctx, lastSeenKey, driverID)
+		return nil
+	})
+	// redis.Nil only means no last-seen entry, which reads as 0 below, i.e. stale.
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+	if p := pos.Val(); len(p) == 1 && p[0] != nil && int64(seen.Val()) >= freshSince.UnixMilli() {
+		return &Location{Lat: p[0].Latitude, Lng: p[0].Longitude}, nil
+	}
+	return nil, nil
 }
 
 // PruneStale removes every driver last seen before cutoff, including expired offline markers, which searches

@@ -9,6 +9,7 @@ package ridev1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -20,6 +21,113 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type RideStatus int32
+
+const (
+	RideStatus_RIDE_STATUS_UNSPECIFIED RideStatus = 0
+	RideStatus_RIDE_STATUS_REQUESTED   RideStatus = 1
+	RideStatus_RIDE_STATUS_ACCEPTED    RideStatus = 2
+	RideStatus_RIDE_STATUS_IN_PROGRESS RideStatus = 3
+	RideStatus_RIDE_STATUS_COMPLETED   RideStatus = 4
+	RideStatus_RIDE_STATUS_CANCELLED   RideStatus = 5
+)
+
+// Enum value maps for RideStatus.
+var (
+	RideStatus_name = map[int32]string{
+		0: "RIDE_STATUS_UNSPECIFIED",
+		1: "RIDE_STATUS_REQUESTED",
+		2: "RIDE_STATUS_ACCEPTED",
+		3: "RIDE_STATUS_IN_PROGRESS",
+		4: "RIDE_STATUS_COMPLETED",
+		5: "RIDE_STATUS_CANCELLED",
+	}
+	RideStatus_value = map[string]int32{
+		"RIDE_STATUS_UNSPECIFIED": 0,
+		"RIDE_STATUS_REQUESTED":   1,
+		"RIDE_STATUS_ACCEPTED":    2,
+		"RIDE_STATUS_IN_PROGRESS": 3,
+		"RIDE_STATUS_COMPLETED":   4,
+		"RIDE_STATUS_CANCELLED":   5,
+	}
+)
+
+func (x RideStatus) Enum() *RideStatus {
+	p := new(RideStatus)
+	*p = x
+	return p
+}
+
+func (x RideStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RideStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_ride_v1_ride_proto_enumTypes[0].Descriptor()
+}
+
+func (RideStatus) Type() protoreflect.EnumType {
+	return &file_ride_v1_ride_proto_enumTypes[0]
+}
+
+func (x RideStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RideStatus.Descriptor instead.
+func (RideStatus) EnumDescriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{0}
+}
+
+type CancelReason int32
+
+const (
+	CancelReason_CANCEL_REASON_UNSPECIFIED CancelReason = 0
+	CancelReason_CANCEL_REASON_RIDER       CancelReason = 1
+	CancelReason_CANCEL_REASON_NO_DRIVER   CancelReason = 2
+)
+
+// Enum value maps for CancelReason.
+var (
+	CancelReason_name = map[int32]string{
+		0: "CANCEL_REASON_UNSPECIFIED",
+		1: "CANCEL_REASON_RIDER",
+		2: "CANCEL_REASON_NO_DRIVER",
+	}
+	CancelReason_value = map[string]int32{
+		"CANCEL_REASON_UNSPECIFIED": 0,
+		"CANCEL_REASON_RIDER":       1,
+		"CANCEL_REASON_NO_DRIVER":   2,
+	}
+)
+
+func (x CancelReason) Enum() *CancelReason {
+	p := new(CancelReason)
+	*p = x
+	return p
+}
+
+func (x CancelReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CancelReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_ride_v1_ride_proto_enumTypes[1].Descriptor()
+}
+
+func (CancelReason) Type() protoreflect.EnumType {
+	return &file_ride_v1_ride_proto_enumTypes[1]
+}
+
+func (x CancelReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CancelReason.Descriptor instead.
+func (CancelReason) EnumDescriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{1}
+}
 
 type Location struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -676,11 +784,223 @@ func (*CompleteRideResponse) Descriptor() ([]byte, []int) {
 	return file_ride_v1_ride_proto_rawDescGZIP(), []int{14}
 }
 
+type WatchRideRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchRideRequest) Reset() {
+	*x = WatchRideRequest{}
+	mi := &file_ride_v1_ride_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchRideRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchRideRequest) ProtoMessage() {}
+
+func (x *WatchRideRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchRideRequest.ProtoReflect.Descriptor instead.
+func (*WatchRideRequest) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *WatchRideRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+type WatchRideResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ride          *Ride                  `protobuf:"bytes,1,opt,name=ride,proto3" json:"ride,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchRideResponse) Reset() {
+	*x = WatchRideResponse{}
+	mi := &file_ride_v1_ride_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchRideResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchRideResponse) ProtoMessage() {}
+
+func (x *WatchRideResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchRideResponse.ProtoReflect.Descriptor instead.
+func (*WatchRideResponse) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *WatchRideResponse) GetRide() *Ride {
+	if x != nil {
+		return x.Ride
+	}
+	return nil
+}
+
+type Ride struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RideId         string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	Status         RideStatus             `protobuf:"varint,2,opt,name=status,proto3,enum=ride.v1.RideStatus" json:"status,omitempty"`
+	CancelReason   CancelReason           `protobuf:"varint,3,opt,name=cancel_reason,json=cancelReason,proto3,enum=ride.v1.CancelReason" json:"cancel_reason,omitempty"`
+	Pickup         *Location              `protobuf:"bytes,4,opt,name=pickup,proto3" json:"pickup,omitempty"`
+	Dropoff        *Location              `protobuf:"bytes,5,opt,name=dropoff,proto3" json:"dropoff,omitempty"`
+	DriverId       string                 `protobuf:"bytes,6,opt,name=driver_id,json=driverId,proto3" json:"driver_id,omitempty"`
+	DriverLocation *Location              `protobuf:"bytes,7,opt,name=driver_location,json=driverLocation,proto3" json:"driver_location,omitempty"`
+	RequestedAt    *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=requested_at,json=requestedAt,proto3" json:"requested_at,omitempty"`
+	AcceptedAt     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=accepted_at,json=acceptedAt,proto3" json:"accepted_at,omitempty"`
+	StartedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt    *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Ride) Reset() {
+	*x = Ride{}
+	mi := &file_ride_v1_ride_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Ride) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Ride) ProtoMessage() {}
+
+func (x *Ride) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Ride.ProtoReflect.Descriptor instead.
+func (*Ride) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *Ride) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+func (x *Ride) GetStatus() RideStatus {
+	if x != nil {
+		return x.Status
+	}
+	return RideStatus_RIDE_STATUS_UNSPECIFIED
+}
+
+func (x *Ride) GetCancelReason() CancelReason {
+	if x != nil {
+		return x.CancelReason
+	}
+	return CancelReason_CANCEL_REASON_UNSPECIFIED
+}
+
+func (x *Ride) GetPickup() *Location {
+	if x != nil {
+		return x.Pickup
+	}
+	return nil
+}
+
+func (x *Ride) GetDropoff() *Location {
+	if x != nil {
+		return x.Dropoff
+	}
+	return nil
+}
+
+func (x *Ride) GetDriverId() string {
+	if x != nil {
+		return x.DriverId
+	}
+	return ""
+}
+
+func (x *Ride) GetDriverLocation() *Location {
+	if x != nil {
+		return x.DriverLocation
+	}
+	return nil
+}
+
+func (x *Ride) GetRequestedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RequestedAt
+	}
+	return nil
+}
+
+func (x *Ride) GetAcceptedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.AcceptedAt
+	}
+	return nil
+}
+
+func (x *Ride) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *Ride) GetCompletedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return nil
+}
+
 var File_ride_v1_ride_proto protoreflect.FileDescriptor
 
 const file_ride_v1_ride_proto_rawDesc = "" +
 	"\n" +
-	"\x12ride/v1/ride.proto\x12\aride.v1\".\n" +
+	"\x12ride/v1/ride.proto\x12\aride.v1\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
 	"\bLocation\x12\x10\n" +
 	"\x03lat\x18\x01 \x01(\x01R\x03lat\x12\x10\n" +
 	"\x03lng\x18\x02 \x01(\x01R\x03lng\"k\n" +
@@ -710,7 +1030,38 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\x11StartRideResponse\".\n" +
 	"\x13CompleteRideRequest\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x16\n" +
-	"\x14CompleteRideResponse2\xb1\x04\n" +
+	"\x14CompleteRideResponse\"+\n" +
+	"\x10WatchRideRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\"6\n" +
+	"\x11WatchRideResponse\x12!\n" +
+	"\x04ride\x18\x01 \x01(\v2\r.ride.v1.RideR\x04ride\"\xaf\x04\n" +
+	"\x04Ride\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12+\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x13.ride.v1.RideStatusR\x06status\x12:\n" +
+	"\rcancel_reason\x18\x03 \x01(\x0e2\x15.ride.v1.CancelReasonR\fcancelReason\x12)\n" +
+	"\x06pickup\x18\x04 \x01(\v2\x11.ride.v1.LocationR\x06pickup\x12+\n" +
+	"\adropoff\x18\x05 \x01(\v2\x11.ride.v1.LocationR\adropoff\x12\x1b\n" +
+	"\tdriver_id\x18\x06 \x01(\tR\bdriverId\x12:\n" +
+	"\x0fdriver_location\x18\a \x01(\v2\x11.ride.v1.LocationR\x0edriverLocation\x12=\n" +
+	"\frequested_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\vrequestedAt\x12;\n" +
+	"\vaccepted_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"acceptedAt\x129\n" +
+	"\n" +
+	"started_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12=\n" +
+	"\fcompleted_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt*\xb1\x01\n" +
+	"\n" +
+	"RideStatus\x12\x1b\n" +
+	"\x17RIDE_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15RIDE_STATUS_REQUESTED\x10\x01\x12\x18\n" +
+	"\x14RIDE_STATUS_ACCEPTED\x10\x02\x12\x1b\n" +
+	"\x17RIDE_STATUS_IN_PROGRESS\x10\x03\x12\x19\n" +
+	"\x15RIDE_STATUS_COMPLETED\x10\x04\x12\x19\n" +
+	"\x15RIDE_STATUS_CANCELLED\x10\x05*c\n" +
+	"\fCancelReason\x12\x1d\n" +
+	"\x19CANCEL_REASON_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13CANCEL_REASON_RIDER\x10\x01\x12\x1b\n" +
+	"\x17CANCEL_REASON_NO_DRIVER\x10\x022\xf7\x04\n" +
 	"\vRideService\x12E\n" +
 	"\n" +
 	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponse\x12i\n" +
@@ -720,7 +1071,8 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\n" +
 	"CancelRide\x12\x1a.ride.v1.CancelRideRequest\x1a\x1b.ride.v1.CancelRideResponse\x12B\n" +
 	"\tStartRide\x12\x19.ride.v1.StartRideRequest\x1a\x1a.ride.v1.StartRideResponse\x12K\n" +
-	"\fCompleteRide\x12\x1c.ride.v1.CompleteRideRequest\x1a\x1d.ride.v1.CompleteRideResponseB\x97\x01\n" +
+	"\fCompleteRide\x12\x1c.ride.v1.CompleteRideRequest\x1a\x1d.ride.v1.CompleteRideResponse\x12D\n" +
+	"\tWatchRide\x12\x19.ride.v1.WatchRideRequest\x1a\x1a.ride.v1.WatchRideResponse0\x01B\x97\x01\n" +
 	"\vcom.ride.v1B\tRideProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1;ridev1\xa2\x02\x03RXX\xaa\x02\aRide.V1\xca\x02\aRide\\V1\xe2\x02\x13Ride\\V1\\GPBMetadata\xea\x02\bRide::V1b\x06proto3"
 
 var (
@@ -735,46 +1087,65 @@ func file_ride_v1_ride_proto_rawDescGZIP() []byte {
 	return file_ride_v1_ride_proto_rawDescData
 }
 
-var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_ride_v1_ride_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_ride_v1_ride_proto_goTypes = []any{
-	(*Location)(nil),                       // 0: ride.v1.Location
-	(*CreateRideRequest)(nil),              // 1: ride.v1.CreateRideRequest
-	(*CreateRideResponse)(nil),             // 2: ride.v1.CreateRideResponse
-	(*FilterAvailableDriversRequest)(nil),  // 3: ride.v1.FilterAvailableDriversRequest
-	(*FilterAvailableDriversResponse)(nil), // 4: ride.v1.FilterAvailableDriversResponse
-	(*AssignDriverRequest)(nil),            // 5: ride.v1.AssignDriverRequest
-	(*AssignDriverResponse)(nil),           // 6: ride.v1.AssignDriverResponse
-	(*MarkNoDriverRequest)(nil),            // 7: ride.v1.MarkNoDriverRequest
-	(*MarkNoDriverResponse)(nil),           // 8: ride.v1.MarkNoDriverResponse
-	(*CancelRideRequest)(nil),              // 9: ride.v1.CancelRideRequest
-	(*CancelRideResponse)(nil),             // 10: ride.v1.CancelRideResponse
-	(*StartRideRequest)(nil),               // 11: ride.v1.StartRideRequest
-	(*StartRideResponse)(nil),              // 12: ride.v1.StartRideResponse
-	(*CompleteRideRequest)(nil),            // 13: ride.v1.CompleteRideRequest
-	(*CompleteRideResponse)(nil),           // 14: ride.v1.CompleteRideResponse
+	(RideStatus)(0),                        // 0: ride.v1.RideStatus
+	(CancelReason)(0),                      // 1: ride.v1.CancelReason
+	(*Location)(nil),                       // 2: ride.v1.Location
+	(*CreateRideRequest)(nil),              // 3: ride.v1.CreateRideRequest
+	(*CreateRideResponse)(nil),             // 4: ride.v1.CreateRideResponse
+	(*FilterAvailableDriversRequest)(nil),  // 5: ride.v1.FilterAvailableDriversRequest
+	(*FilterAvailableDriversResponse)(nil), // 6: ride.v1.FilterAvailableDriversResponse
+	(*AssignDriverRequest)(nil),            // 7: ride.v1.AssignDriverRequest
+	(*AssignDriverResponse)(nil),           // 8: ride.v1.AssignDriverResponse
+	(*MarkNoDriverRequest)(nil),            // 9: ride.v1.MarkNoDriverRequest
+	(*MarkNoDriverResponse)(nil),           // 10: ride.v1.MarkNoDriverResponse
+	(*CancelRideRequest)(nil),              // 11: ride.v1.CancelRideRequest
+	(*CancelRideResponse)(nil),             // 12: ride.v1.CancelRideResponse
+	(*StartRideRequest)(nil),               // 13: ride.v1.StartRideRequest
+	(*StartRideResponse)(nil),              // 14: ride.v1.StartRideResponse
+	(*CompleteRideRequest)(nil),            // 15: ride.v1.CompleteRideRequest
+	(*CompleteRideResponse)(nil),           // 16: ride.v1.CompleteRideResponse
+	(*WatchRideRequest)(nil),               // 17: ride.v1.WatchRideRequest
+	(*WatchRideResponse)(nil),              // 18: ride.v1.WatchRideResponse
+	(*Ride)(nil),                           // 19: ride.v1.Ride
+	(*timestamppb.Timestamp)(nil),          // 20: google.protobuf.Timestamp
 }
 var file_ride_v1_ride_proto_depIdxs = []int32{
-	0,  // 0: ride.v1.CreateRideRequest.pickup:type_name -> ride.v1.Location
-	0,  // 1: ride.v1.CreateRideRequest.dropoff:type_name -> ride.v1.Location
-	1,  // 2: ride.v1.RideService.CreateRide:input_type -> ride.v1.CreateRideRequest
-	3,  // 3: ride.v1.RideService.FilterAvailableDrivers:input_type -> ride.v1.FilterAvailableDriversRequest
-	5,  // 4: ride.v1.RideService.AssignDriver:input_type -> ride.v1.AssignDriverRequest
-	7,  // 5: ride.v1.RideService.MarkNoDriver:input_type -> ride.v1.MarkNoDriverRequest
-	9,  // 6: ride.v1.RideService.CancelRide:input_type -> ride.v1.CancelRideRequest
-	11, // 7: ride.v1.RideService.StartRide:input_type -> ride.v1.StartRideRequest
-	13, // 8: ride.v1.RideService.CompleteRide:input_type -> ride.v1.CompleteRideRequest
-	2,  // 9: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
-	4,  // 10: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
-	6,  // 11: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
-	8,  // 12: ride.v1.RideService.MarkNoDriver:output_type -> ride.v1.MarkNoDriverResponse
-	10, // 13: ride.v1.RideService.CancelRide:output_type -> ride.v1.CancelRideResponse
-	12, // 14: ride.v1.RideService.StartRide:output_type -> ride.v1.StartRideResponse
-	14, // 15: ride.v1.RideService.CompleteRide:output_type -> ride.v1.CompleteRideResponse
-	9,  // [9:16] is the sub-list for method output_type
-	2,  // [2:9] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	2,  // 0: ride.v1.CreateRideRequest.pickup:type_name -> ride.v1.Location
+	2,  // 1: ride.v1.CreateRideRequest.dropoff:type_name -> ride.v1.Location
+	19, // 2: ride.v1.WatchRideResponse.ride:type_name -> ride.v1.Ride
+	0,  // 3: ride.v1.Ride.status:type_name -> ride.v1.RideStatus
+	1,  // 4: ride.v1.Ride.cancel_reason:type_name -> ride.v1.CancelReason
+	2,  // 5: ride.v1.Ride.pickup:type_name -> ride.v1.Location
+	2,  // 6: ride.v1.Ride.dropoff:type_name -> ride.v1.Location
+	2,  // 7: ride.v1.Ride.driver_location:type_name -> ride.v1.Location
+	20, // 8: ride.v1.Ride.requested_at:type_name -> google.protobuf.Timestamp
+	20, // 9: ride.v1.Ride.accepted_at:type_name -> google.protobuf.Timestamp
+	20, // 10: ride.v1.Ride.started_at:type_name -> google.protobuf.Timestamp
+	20, // 11: ride.v1.Ride.completed_at:type_name -> google.protobuf.Timestamp
+	3,  // 12: ride.v1.RideService.CreateRide:input_type -> ride.v1.CreateRideRequest
+	5,  // 13: ride.v1.RideService.FilterAvailableDrivers:input_type -> ride.v1.FilterAvailableDriversRequest
+	7,  // 14: ride.v1.RideService.AssignDriver:input_type -> ride.v1.AssignDriverRequest
+	9,  // 15: ride.v1.RideService.MarkNoDriver:input_type -> ride.v1.MarkNoDriverRequest
+	11, // 16: ride.v1.RideService.CancelRide:input_type -> ride.v1.CancelRideRequest
+	13, // 17: ride.v1.RideService.StartRide:input_type -> ride.v1.StartRideRequest
+	15, // 18: ride.v1.RideService.CompleteRide:input_type -> ride.v1.CompleteRideRequest
+	17, // 19: ride.v1.RideService.WatchRide:input_type -> ride.v1.WatchRideRequest
+	4,  // 20: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
+	6,  // 21: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
+	8,  // 22: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
+	10, // 23: ride.v1.RideService.MarkNoDriver:output_type -> ride.v1.MarkNoDriverResponse
+	12, // 24: ride.v1.RideService.CancelRide:output_type -> ride.v1.CancelRideResponse
+	14, // 25: ride.v1.RideService.StartRide:output_type -> ride.v1.StartRideResponse
+	16, // 26: ride.v1.RideService.CompleteRide:output_type -> ride.v1.CompleteRideResponse
+	18, // 27: ride.v1.RideService.WatchRide:output_type -> ride.v1.WatchRideResponse
+	20, // [20:28] is the sub-list for method output_type
+	12, // [12:20] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_ride_v1_ride_proto_init() }
@@ -787,13 +1158,14 @@ func file_ride_v1_ride_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ride_v1_ride_proto_rawDesc), len(file_ride_v1_ride_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   15,
+			NumEnums:      2,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_ride_v1_ride_proto_goTypes,
 		DependencyIndexes: file_ride_v1_ride_proto_depIdxs,
+		EnumInfos:         file_ride_v1_ride_proto_enumTypes,
 		MessageInfos:      file_ride_v1_ride_proto_msgTypes,
 	}.Build()
 	File_ride_v1_ride_proto = out.File

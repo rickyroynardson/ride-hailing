@@ -18,6 +18,7 @@ import (
 	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
+	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
@@ -64,8 +65,21 @@ func main() {
 	}
 	postgres.RegisterPoolMetrics(dbpool)
 
+	// WatchRide reads the driver's position from location. grpc.NewClient connects lazily, so ride starts even if
+	// location isn't up; streams just go without a position until it is.
+	locationConn, err := grpc.NewClient(cfg.LocationAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		grpcserver.ClientTracing(),
+	)
+	if err != nil {
+		lg.Fatal("failed to create location client", zap.Error(err))
+	}
+	defer locationConn.Close()
+
 	rideRepo := ride.NewRepository(dbpool)
-	rideService := ride.NewService(rideRepo)
+	hub := ride.NewHub(dbpool)
+	rideService := ride.NewService(rideRepo, hub, locationv1.NewLocationServiceClient(locationConn))
 
 	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), rideService)
 
@@ -84,9 +98,10 @@ func main() {
 
 	// Every replica runs the relay; SKIP LOCKED splits the work, and receivers are idempotent anyway. The listener
 	// wakes it the moment a message commits; the one-second poll remains for retries and missed notifications.
-	relayCtx, stopRelay := context.WithCancel(context.Background())
-	go loop.Run(relayCtx, lg, "outbox listener", time.Second, 30*time.Second, relay.Listen)
-	go loop.RunWake(relayCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Wake(), relay.Run)
+	loopCtx, stopLoops := context.WithCancel(context.Background())
+	go loop.Run(loopCtx, lg, "outbox listener", time.Second, 30*time.Second, relay.Listen)
+	go loop.RunWake(loopCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Wake(), relay.Run)
+	go loop.Run(loopCtx, lg, "ride change listener", time.Second, 30*time.Second, hub.Listen)
 
 	r := chi.NewRouter()
 
@@ -122,12 +137,23 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	<-stop
-	stopRelay()
+	stopLoops()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	gs.GracefulStop()
+	// GracefulStop waits for every RPC, and a WatchRide stream may never end by itself. Past the deadline, Stop ends
+	// what is left; those clients reconnect to another replica.
+	stopped := make(chan struct{})
+	go func() {
+		gs.GracefulStop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		gs.Stop()
+	}
 	if err := sv.Shutdown(ctx); err != nil {
 		lg.Fatal("failed to shutdown server", zap.Error(err))
 	}

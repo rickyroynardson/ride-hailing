@@ -216,7 +216,11 @@ function renderActors() {
       }
     } else {
       const ride = state.rides.find(r => r.id === a.rideId);
-      if (ride) status = `<span class="pill ${STATUS_PILL[ride.status] || ''}">${esc(ride.status)}</span>${ride.driverId ? ` <span class="pill ok">${esc(nameOf(ride.driverId))}</span>` : ''}`;
+      // The rider's status comes from their WatchRide stream, like a rider app; the table reads the database.
+      const live = a.live && a.live.rideId === a.rideId ? a.live : null;
+      const shown = live ? live.status : ride && ride.status;
+      if (ride) status = `<span class="pill ${STATUS_PILL[shown] || ''}">${esc(shown)}</span>${ride.driverId ? ` <span class="pill ok">${esc(nameOf(ride.driverId))}</span>` : ''}`;
+      if (live) extra = `<div class="meta">WatchRide: ${live.updates} update${live.updates === 1 ? '' : 's'}${live.driverLocation ? ` · driver at ${live.driverLocation.lat.toFixed(4)}, ${live.driverLocation.lng.toFixed(4)}` : ''}</div>`;
       if (ride && ['requested', 'accepted'].includes(ride.status)) {
         actions += `<button onclick="event.stopPropagation(); cancelRide('${a.id}', '${ride.id}')">Cancel ride</button>`;
       }
@@ -338,6 +342,8 @@ async function poll() {
 }
 poll();
 setInterval(poll, 1500);
+// A stream brought news: refresh now instead of at the next poll.
+new EventSource('/api/events').onmessage = poll;
 </script>
 </body>
 </html>

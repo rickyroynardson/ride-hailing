@@ -93,6 +93,55 @@ func TestAuthInterceptor(t *testing.T) {
 	}
 }
 
+func TestStreamInterceptors(t *testing.T) {
+	const secret = "secret"
+	logging := StreamLogging(zap.NewNop(), nil)
+	auth := StreamAuth(jwtauth.NewVerifier(secret), map[string]Access{
+		"/test/Reflection": Public,
+		"/test/Internal":   ServicesOnly,
+	})
+	stream := func(ctx context.Context) grpc.ServerStream { return fakeStream{ctx: ctx} }
+	ok := func(any, grpc.ServerStream) error { return nil }
+
+	info := &grpc.StreamServerInfo{FullMethod: "/test/Watch"}
+	err := logging(nil, stream(context.Background()), info, func(any, grpc.ServerStream) error { panic("boom") })
+	if st := status.Convert(err); st.Code() != codes.Internal || st.Message() != "internal error" {
+		t.Fatalf("panic: got %v", err)
+	}
+	err = logging(nil, stream(context.Background()), info, func(any, grpc.ServerStream) error { return errors.New("db password leaked") })
+	if st := status.Convert(err); st.Code() != codes.Internal || st.Message() != "internal error" {
+		t.Fatalf("hidden cause: got %v", err)
+	}
+
+	if err := auth(nil, stream(context.Background()), info, ok); status.Code(toStatus(err, nil)) != codes.Unauthenticated {
+		t.Fatalf("no token: got %v", err)
+	}
+	if err := auth(nil, stream(context.Background()), &grpc.StreamServerInfo{FullMethod: "/test/Reflection"}, ok); err != nil {
+		t.Fatalf("public stream: got %v", err)
+	}
+
+	// The handler reads the caller from the stream's context, so the interceptor must replace it.
+	user := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signUserToken(t, secret, "user-1")))
+	var got string
+	err = auth(nil, stream(user), info, func(_ any, ss grpc.ServerStream) error {
+		got = CallerFrom(ss.Context()).UserID
+		return nil
+	})
+	if err != nil || got != "user-1" {
+		t.Fatalf("user stream: caller %q, err %v", got, err)
+	}
+	if err := auth(nil, stream(user), &grpc.StreamServerInfo{FullMethod: "/test/Internal"}, ok); status.Code(toStatus(err, nil)) != codes.PermissionDenied {
+		t.Fatalf("user on internal stream: got %v", err)
+	}
+}
+
+type fakeStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s fakeStream) Context() context.Context { return s.ctx }
+
 func signUserToken(t *testing.T, secret, userID string) string {
 	t.Helper()
 	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{

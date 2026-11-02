@@ -26,6 +26,7 @@ const (
 	RideService_CancelRide_FullMethodName             = "/ride.v1.RideService/CancelRide"
 	RideService_StartRide_FullMethodName              = "/ride.v1.RideService/StartRide"
 	RideService_CompleteRide_FullMethodName           = "/ride.v1.RideService/CompleteRide"
+	RideService_WatchRide_FullMethodName              = "/ride.v1.RideService/WatchRide"
 )
 
 // RideServiceClient is the client API for RideService service.
@@ -39,6 +40,7 @@ type RideServiceClient interface {
 	CancelRide(ctx context.Context, in *CancelRideRequest, opts ...grpc.CallOption) (*CancelRideResponse, error)
 	StartRide(ctx context.Context, in *StartRideRequest, opts ...grpc.CallOption) (*StartRideResponse, error)
 	CompleteRide(ctx context.Context, in *CompleteRideRequest, opts ...grpc.CallOption) (*CompleteRideResponse, error)
+	WatchRide(ctx context.Context, in *WatchRideRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchRideResponse], error)
 }
 
 type rideServiceClient struct {
@@ -119,6 +121,25 @@ func (c *rideServiceClient) CompleteRide(ctx context.Context, in *CompleteRideRe
 	return out, nil
 }
 
+func (c *rideServiceClient) WatchRide(ctx context.Context, in *WatchRideRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchRideResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RideService_ServiceDesc.Streams[0], RideService_WatchRide_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchRideRequest, WatchRideResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RideService_WatchRideClient = grpc.ServerStreamingClient[WatchRideResponse]
+
 // RideServiceServer is the server API for RideService service.
 // All implementations must embed UnimplementedRideServiceServer
 // for forward compatibility.
@@ -130,6 +151,7 @@ type RideServiceServer interface {
 	CancelRide(context.Context, *CancelRideRequest) (*CancelRideResponse, error)
 	StartRide(context.Context, *StartRideRequest) (*StartRideResponse, error)
 	CompleteRide(context.Context, *CompleteRideRequest) (*CompleteRideResponse, error)
+	WatchRide(*WatchRideRequest, grpc.ServerStreamingServer[WatchRideResponse]) error
 	mustEmbedUnimplementedRideServiceServer()
 }
 
@@ -160,6 +182,9 @@ func (UnimplementedRideServiceServer) StartRide(context.Context, *StartRideReque
 }
 func (UnimplementedRideServiceServer) CompleteRide(context.Context, *CompleteRideRequest) (*CompleteRideResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CompleteRide not implemented")
+}
+func (UnimplementedRideServiceServer) WatchRide(*WatchRideRequest, grpc.ServerStreamingServer[WatchRideResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchRide not implemented")
 }
 func (UnimplementedRideServiceServer) mustEmbedUnimplementedRideServiceServer() {}
 func (UnimplementedRideServiceServer) testEmbeddedByValue()                     {}
@@ -308,6 +333,17 @@ func _RideService_CompleteRide_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RideService_WatchRide_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchRideRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RideServiceServer).WatchRide(m, &grpc.GenericServerStream[WatchRideRequest, WatchRideResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RideService_WatchRideServer = grpc.ServerStreamingServer[WatchRideResponse]
+
 // RideService_ServiceDesc is the grpc.ServiceDesc for RideService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -344,6 +380,12 @@ var RideService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RideService_CompleteRide_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchRide",
+			Handler:       _RideService_WatchRide_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "ride/v1/ride.proto",
 }

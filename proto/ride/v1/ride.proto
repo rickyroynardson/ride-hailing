@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package ride.v1;
 
+import "google/protobuf/timestamp.proto";
+
 service RideService {
   rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
   rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
@@ -10,6 +12,7 @@ service RideService {
   rpc CancelRide(CancelRideRequest) returns (CancelRideResponse);
   rpc StartRide(StartRideRequest) returns (StartRideResponse);
   rpc CompleteRide(CompleteRideRequest) returns (CompleteRideResponse);
+  rpc WatchRide(WatchRideRequest) returns (stream WatchRideResponse);
 }
 
 message Location {
@@ -75,3 +78,40 @@ message CompleteRideRequest {
 }
 
 message CompleteRideResponse {}
+
+message WatchRideRequest {
+  string ride_id = 1;
+}
+
+message WatchRideResponse {
+  Ride ride = 1;
+}
+
+message Ride {
+  string ride_id = 1;
+  RideStatus status = 2;
+  CancelReason cancel_reason = 3;
+  Location pickup = 4;
+  Location dropoff = 5;
+  string driver_id = 6;
+  Location driver_location = 7;
+  google.protobuf.Timestamp requested_at = 8;
+  google.protobuf.Timestamp accepted_at = 9;
+  google.protobuf.Timestamp started_at = 10;
+  google.protobuf.Timestamp completed_at = 11;
+}
+
+enum RideStatus {
+  RIDE_STATUS_UNSPECIFIED = 0;
+  RIDE_STATUS_REQUESTED = 1;
+  RIDE_STATUS_ACCEPTED = 2;
+  RIDE_STATUS_IN_PROGRESS = 3;
+  RIDE_STATUS_COMPLETED = 4;
+  RIDE_STATUS_CANCELLED = 5;
+}
+
+enum CancelReason {
+  CANCEL_REASON_UNSPECIFIED = 0;
+  CANCEL_REASON_RIDER = 1;
+  CANCEL_REASON_NO_DRIVER = 2;
+}

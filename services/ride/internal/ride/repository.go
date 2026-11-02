@@ -43,6 +43,22 @@ func (r *RideRepository) CreateRide(ctx context.Context, in CreateRideInput) (st
 	return id, err
 }
 
+// GetRide returns the ride if userID is its rider or driver. Anyone else gets ErrRideNotFound.
+func (r *RideRepository) GetRide(ctx context.Context, rideID, userID string) (Ride, error) {
+	x := Ride{ID: rideID}
+	err := r.DB.QueryRow(ctx,
+		`SELECT status, COALESCE(cancel_reason, ''), COALESCE(driver_id::text, ''),
+		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at, accepted_at, started_at, completed_at
+		FROM rides WHERE id = $1 AND (rider_id = $2 OR driver_id = $2)`,
+		rideID, userID,
+	).Scan(&x.Status, &x.CancelReason, &x.DriverID,
+		&x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.RequestedAt, &x.AcceptedAt, &x.StartedAt, &x.CompletedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Ride{}, ErrRideNotFound
+	}
+	return x, err
+}
+
 // BusyDrivers returns which of driverIDs are on an accepted or in-progress ride. The partial unique index
 // rides_one_active_per_driver covers exactly these rows, so the lookup uses it.
 func (r *RideRepository) BusyDrivers(ctx context.Context, driverIDs []string) (map[string]bool, error) {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -18,8 +19,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
+	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/database"
@@ -33,6 +36,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -70,7 +74,8 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("schema check after migrating: %v", err)
 	}
 
-	client := startServer(t, pool)
+	location := &fakeLocation{}
+	client, conn := startServer(t, pool, location)
 
 	const riderID = "11111111-1111-1111-1111-111111111111"
 	rider := withToken(t, ctx, riderID)
@@ -495,6 +500,178 @@ func TestIntegration(t *testing.T) {
 
 	// A cancelled ride can't be started.
 	wantCode(t, "start cancelled ride", startRide(withToken(t, ctx, "cccccccc-0000-0000-0000-00000000000a"), accepted.GetRideId()), codes.FailedPrecondition)
+
+	testWatchRide(t, ctx, pool, client, location, service)
+
+	// Stream auth must not lock tools out of reflection, which is itself a stream.
+	refl, err := reflectionv1.NewServerReflectionClient(conn).ServerReflectionInfo(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refl.Send(&reflectionv1.ServerReflectionRequest{MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := refl.Recv(); err != nil {
+		t.Fatalf("reflection without a token: %v", err)
+	}
+}
+
+// testWatchRide follows rides through WatchRide. Changes reach the stream through the real trigger and listener;
+// only the driver's position is faked.
+func testWatchRide(t *testing.T, ctx context.Context, pool *pgxpool.Pool, client ridev1.RideServiceClient, location *fakeLocation, service context.Context) {
+	t.Helper()
+	const (
+		riderID  = "eeeeeeee-0000-0000-0000-000000000001"
+		driverID = "eeeeeeee-0000-0000-0000-000000000002"
+	)
+	rider, driver := withToken(t, ctx, riderID), withToken(t, ctx, driverID)
+	// Wait for the listener, so changes below reach streams as notifications and not through its catch-up on connecting.
+	listenerPID := func() (pid int) {
+		pool.QueryRow(ctx, `SELECT pid FROM pg_stat_activity WHERE query LIKE 'LISTEN "ride_changed"%'`).Scan(&pid)
+		return pid
+	}
+	pid := listenerPID()
+	for deadline := time.Now().Add(5 * time.Second); pid == 0 && time.Now().Before(deadline); pid = listenerPID() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("ride change listener never connected")
+	}
+	newRide := func() string {
+		t.Helper()
+		res, err := client.CreateRide(rider, &ridev1.CreateRideRequest{Pickup: &ridev1.Location{Lat: 1, Lng: 2}, Dropoff: &ridev1.Location{Lat: 3, Lng: 4}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.GetRideId()
+	}
+	watch := func(who context.Context, rideID string) grpc.ServerStreamingClient[ridev1.WatchRideResponse] {
+		t.Helper()
+		who, cancel := context.WithTimeout(who, 30*time.Second)
+		t.Cleanup(cancel)
+		stream, err := client.WatchRide(who, &ridev1.WatchRideRequest{RideId: rideID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stream
+	}
+	next := func(stream grpc.ServerStreamingClient[ridev1.WatchRideResponse], want ridev1.RideStatus) *ridev1.Ride {
+		t.Helper()
+		res, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("waiting for %v: %v", want, err)
+		}
+		if got := res.GetRide().GetStatus(); got != want {
+			t.Fatalf("status: got %v, want %v", got, want)
+		}
+		return res.GetRide()
+	}
+	wantEnd := func(stream grpc.ServerStreamingClient[ridev1.WatchRideResponse]) {
+		t.Helper()
+		if res, err := stream.Recv(); err != io.EOF {
+			t.Fatalf("after the final state: got %v, %v, want the stream to end", res, err)
+		}
+	}
+	wantLocation := func(r *ridev1.Ride, lat float64) {
+		t.Helper()
+		if r.GetDriverLocation().GetLat() != lat {
+			t.Fatalf("driver location: got %v, want lat %v", r.GetDriverLocation(), lat)
+		}
+	}
+
+	rideID := newRide()
+	refused := func(name string, who context.Context, id string, code codes.Code) {
+		t.Helper()
+		_, err := watch(who, id).Recv()
+		wantCode(t, name, err, code)
+	}
+	refused("watch without token", ctx, rideID, codes.Unauthenticated)
+	refused("watch with service token", service, rideID, codes.PermissionDenied)
+	refused("watch someone else's ride", withToken(t, ctx, "eeeeeeee-0000-0000-0000-000000000003"), rideID, codes.NotFound)
+	refused("watch bad id", rider, "ride-1", codes.InvalidArgument)
+
+	// The first message is the current state, whole.
+	riderStream := watch(rider, rideID)
+	first := next(riderStream, ridev1.RideStatus_RIDE_STATUS_REQUESTED)
+	if first.GetRideId() != rideID || first.GetPickup().GetLat() != 1 || first.GetDropoff().GetLng() != 4 || first.GetRequestedAt() == nil {
+		t.Fatalf("first message: %v", first)
+	}
+	if first.GetDriverId() != "" || first.GetDriverLocation() != nil || first.GetAcceptedAt() != nil {
+		t.Fatalf("first message has driver details: %v", first)
+	}
+
+	// Assigned: the rider's stream gets the driver and their position, and the driver may now watch too.
+	location.set(&locationv1.Location{Lat: 10}, nil)
+	if _, err := client.AssignDriver(service, &ridev1.AssignDriverRequest{RideId: rideID, DriverId: driverID}); err != nil {
+		t.Fatal(err)
+	}
+	accepted := next(riderStream, ridev1.RideStatus_RIDE_STATUS_ACCEPTED)
+	if accepted.GetDriverId() != driverID || accepted.GetAcceptedAt() == nil {
+		t.Fatalf("after assign: %v", accepted)
+	}
+	wantLocation(accepted, 10)
+	driverStream := watch(driver, rideID)
+	next(driverStream, ridev1.RideStatus_RIDE_STATUS_ACCEPTED)
+
+	// The driver moves: a message with the same status and the new position.
+	location.set(&locationv1.Location{Lat: 11}, nil)
+	wantLocation(next(riderStream, ridev1.RideStatus_RIDE_STATUS_ACCEPTED), 11)
+	wantLocation(next(driverStream, ridev1.RideStatus_RIDE_STATUS_ACCEPTED), 11)
+
+	// Location down: the stream survives on the last known position.
+	location.set(nil, status.Error(codes.Unavailable, "location down"))
+	if _, err := client.StartRide(driver, &ridev1.StartRideRequest{RideId: rideID}); err != nil {
+		t.Fatal(err)
+	}
+	started := next(riderStream, ridev1.RideStatus_RIDE_STATUS_IN_PROGRESS)
+	if started.GetStartedAt() == nil {
+		t.Fatalf("after start: %v", started)
+	}
+	wantLocation(started, 11)
+
+	// Location says the driver is offline: the position goes away.
+	location.set(nil, nil)
+	if r := next(riderStream, ridev1.RideStatus_RIDE_STATUS_IN_PROGRESS); r.GetDriverLocation() != nil {
+		t.Fatalf("offline driver: %v", r)
+	}
+
+	// The final state comes with no position, and ends both streams.
+	location.set(&locationv1.Location{Lat: 12}, nil)
+	if _, err := client.CompleteRide(driver, &ridev1.CompleteRideRequest{RideId: rideID}); err != nil {
+		t.Fatal(err)
+	}
+	// A position message for the new position may land first, while the trip is still in progress.
+	done, err := riderStream.Recv()
+	if err == nil && done.GetRide().GetStatus() == ridev1.RideStatus_RIDE_STATUS_IN_PROGRESS {
+		done, err = riderStream.Recv()
+	}
+	if err != nil || done.GetRide().GetStatus() != ridev1.RideStatus_RIDE_STATUS_COMPLETED {
+		t.Fatalf("waiting for completed: %v, %v", done, err)
+	}
+	if r := done.GetRide(); r.GetDriverLocation() != nil || r.GetCompletedAt() == nil {
+		t.Fatalf("completed: %v", r)
+	}
+	wantEnd(riderStream)
+	if got := listenerPID(); got != pid {
+		t.Fatalf("listener reconnected during the ride: pid %d, was %d", got, pid)
+	}
+
+	// Killing the listener's connection loses the notification for a change made before it reconnects. Reconnecting
+	// must still tell the stream to look again, and a cancel must reach it with its reason.
+	cancelled := newRide()
+	stream := watch(rider, cancelled)
+	next(stream, ridev1.RideStatus_RIDE_STATUS_REQUESTED)
+	tag, err := pool.Exec(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE 'LISTEN "ride_changed"%'`)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("kill listener: %v rows, %v", tag.RowsAffected(), err)
+	}
+	if _, err := client.CancelRide(rider, &ridev1.CancelRideRequest{RideId: cancelled}); err != nil {
+		t.Fatal(err)
+	}
+	if r := next(stream, ridev1.RideStatus_RIDE_STATUS_CANCELLED); r.GetCancelReason() != ridev1.CancelReason_CANCEL_REASON_RIDER {
+		t.Fatalf("cancelled: %v", r)
+	}
+	wantEnd(stream)
 }
 
 // fakeMatching records StartMatching and CancelMatching calls, in order, and fails them while err is set.
@@ -572,9 +749,35 @@ func migrate(t *testing.T, url string) {
 	}
 }
 
-func startServer(t *testing.T, pool *pgxpool.Pool) ridev1.RideServiceClient {
+// fakeLocation answers GetDriverLocation with what the test last set.
+type fakeLocation struct {
+	locationv1.LocationServiceClient
+	mu  sync.Mutex
+	loc *locationv1.Location
+	err error
+}
+
+func (f *fakeLocation) set(loc *locationv1.Location, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.loc, f.err = loc, err
+}
+
+func (f *fakeLocation) GetDriverLocation(context.Context, *locationv1.GetDriverLocationRequest, ...grpc.CallOption) (*locationv1.GetDriverLocationResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return &locationv1.GetDriverLocationResponse{Location: f.loc}, f.err
+}
+
+func startServer(t *testing.T, pool *pgxpool.Pool, location locationv1.LocationServiceClient) (ridev1.RideServiceClient, *grpc.ClientConn) {
 	t.Helper()
-	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier(testSecret), ride.NewService(ride.NewRepository(pool)))
+	hub := ride.NewHub(pool)
+	// Reconnects slowly on purpose: the test that kills this connection makes a change during the gap.
+	listenCtx, stopListen := context.WithCancel(context.Background())
+	t.Cleanup(stopListen)
+	go loop.Run(listenCtx, zap.NewNop(), "ride change listener", 200*time.Millisecond, 200*time.Millisecond, hub.Listen)
+
+	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier(testSecret), ride.NewService(ride.NewRepository(pool), hub, location))
 	lis := bufconn.Listen(1 << 20)
 	go gs.Serve(lis)
 	t.Cleanup(gs.Stop)
@@ -588,7 +791,7 @@ func startServer(t *testing.T, pool *pgxpool.Pool) ridev1.RideServiceClient {
 	}
 	t.Cleanup(func() { conn.Close() })
 
-	return ridev1.NewRideServiceClient(conn)
+	return ridev1.NewRideServiceClient(conn), conn
 }
 
 // withToken signs an access token the way the user service does.

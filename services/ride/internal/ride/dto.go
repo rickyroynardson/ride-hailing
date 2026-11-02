@@ -3,6 +3,7 @@ package ride
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 var (
@@ -20,6 +21,32 @@ var (
 type Location struct {
 	Lat float64
 	Lng float64
+}
+
+// Ride is a ride as its rider and driver see it.
+type Ride struct {
+	ID           string
+	Status       string
+	CancelReason string
+	DriverID     string
+	Pickup       Location
+	Dropoff      Location
+	// DriverLocation is nil unless the ride has a driver on the way or on the trip, and they are online.
+	DriverLocation *Location
+	RequestedAt    time.Time
+	AcceptedAt     *time.Time
+	StartedAt      *time.Time
+	CompletedAt    *time.Time
+}
+
+// hasActiveDriver reports whether a driver is heading to the pickup or on the trip.
+func (r Ride) hasActiveDriver() bool {
+	return r.Status == "accepted" || r.Status == "in_progress"
+}
+
+// finished reports whether the ride reached a state it never leaves.
+func (r Ride) finished() bool {
+	return r.Status == "completed" || r.Status == "cancelled"
 }
 
 type CreateRideInput struct {

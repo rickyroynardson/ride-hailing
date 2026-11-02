@@ -78,6 +78,7 @@ func main() {
 		matchingDB: pool(env("MATCHING_DB_URL", "postgres://postgres:postgres@localhost:5432/matching?sslmode=disable")),
 		rdb:        redis.NewClient(redisOpts),
 		byID:       map[string]*actor{},
+		pages:      map[chan struct{}]struct{}{},
 	}
 
 	mux := http.NewServeMux()
@@ -86,6 +87,7 @@ func main() {
 		w.Write(indexHTML)
 	})
 	mux.HandleFunc("GET /api/state", c.handleState)
+	mux.HandleFunc("GET /api/events", c.handleEvents)
 	mux.HandleFunc("POST /api/actors", c.handleCreateActor)
 	mux.HandleFunc("POST /api/actors/{id}/location", c.handleLocation)
 	mux.HandleFunc("POST /api/actors/{id}/offline", c.handleOffline)

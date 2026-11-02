@@ -15,6 +15,7 @@ import (
 // methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
 var methodAccess = map[string]grpcserver.Access{
 	"/location.v1.LocationService/ListNearbyDrivers": grpcserver.UsersOrServices,
+	"/location.v1.LocationService/GetDriverLocation": grpcserver.ServicesOnly,
 }
 
 func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, locationService *location.LocationService) *grpc.Server {

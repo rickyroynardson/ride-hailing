@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"go.opentelemetry.io/otel/attribute"
@@ -108,32 +109,17 @@ func NewRelay(db *pgxpool.Pool, matching matchingv1.MatchingServiceClient) *Rela
 // Wake receives whenever a message may be waiting; run the relay with loop.RunWake on it.
 func (r *Relay) Wake() <-chan struct{} { return r.wake }
 
-// Listen waits for new-message notifications on a dedicated connection and turns them into wake-ups, so a message
-// is sent within milliseconds instead of at the relay's next poll. It returns only on error (the connection
-// dropped); run it in a loop to reconnect. Notifications sent while it is reconnecting are lost, which is fine:
-// the relay still polls.
+// Listen turns new-message notifications into wake-ups, so a message is sent within milliseconds instead of at the
+// relay's next poll; run it with loop.Run to reconnect. It also wakes the relay on connecting, for anything announced
+// while it was disconnected.
 func (r *Relay) Listen(ctx context.Context) error {
-	conn, err := r.db.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	// Take the connection out of the pool for good: a pooled connection still LISTENing would collect
-	// notifications for whoever borrows it next.
-	pc := conn.Hijack()
-	defer pc.Close(context.Background())
-
-	if _, err := pc.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
-		return err
-	}
-	for {
-		if _, err := pc.WaitForNotification(ctx); err != nil {
-			return err
-		}
+	wake := func() {
 		select {
 		case r.wake <- struct{}{}:
 		default: // a wake-up is already pending
 		}
 	}
+	return postgres.Listen(ctx, r.db, notifyChannel, wake, func(string) { wake() })
 }
 
 // Run delivers one batch of unsent messages, oldest first, and returns the joined delivery errors. It claims rows

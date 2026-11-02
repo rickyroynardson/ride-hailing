@@ -57,6 +57,8 @@ type console struct {
 	actors []*actor
 	byID   map[string]*actor
 	calls  []callEntry
+	// pages holds a channel per open browser tab, to tell it when a stream brought news (handleEvents).
+	pages map[chan struct{}]struct{}
 }
 
 // actor is one rider or driver session. mu guards its tokens and position, so the heartbeat and a click on the
@@ -75,6 +77,8 @@ type actor struct {
 	lastOutcome  string
 	stopBeat     chan struct{}
 	activeRideID string
+	stopWatch    context.CancelFunc
+	live         *liveRide
 }
 
 type actorView struct {
@@ -87,6 +91,8 @@ type actorView struct {
 	RideID      string   `json:"rideId,omitempty"`
 	TokenExpiry int64    `json:"tokenExpiry"`
 	Claims      []string `json:"claims"`
+	// Live is the latest WatchRide message for the rider's ride.
+	Live *liveRide `json:"live,omitempty"`
 }
 
 type latLng struct {
@@ -144,14 +150,17 @@ func (c *console) call(who, method, token string, heartbeat bool, req proto.Mess
 	if err != nil {
 		e.Error = status.Convert(err).Message()
 	}
+	c.record(e)
+	return res, err
+}
 
+func (c *console) record(e callEntry) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.calls = append(c.calls, e)
 	if len(c.calls) > maxCalls {
 		c.calls = c.calls[len(c.calls)-maxCalls:]
 	}
-	c.mu.Unlock()
-	return res, err
 }
 
 func marshal(m proto.Message) json.RawMessage {
@@ -243,6 +252,7 @@ func (a *actor) view() actorView {
 	if !a.lastSent.IsZero() {
 		v.Location = &latLng{a.lat, a.lng}
 	}
+	v.Live = a.live
 	return v
 }
 
@@ -451,6 +461,12 @@ func (c *console) handleRequestRide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.activeRideID = res.(*ridev1.CreateRideResponse).GetRideId()
+	if a.stopWatch != nil {
+		a.stopWatch()
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	a.stopWatch, a.live = stop, nil
+	go c.watchRide(ctx, a, a.activeRideID)
 	writeJSON(w, http.StatusCreated, map[string]string{"rideId": a.activeRideID})
 }
 

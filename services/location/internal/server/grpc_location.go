@@ -88,3 +88,15 @@ func (s *LocationServer) ListNearbyDrivers(ctx context.Context, req *locationv1.
 	}
 	return res, nil
 }
+
+func (s *LocationServer) GetDriverLocation(ctx context.Context, req *locationv1.GetDriverLocationRequest) (*locationv1.GetDriverLocationResponse, error) {
+	l, err := s.service.GetDriverLocation(ctx, req.GetDriverId())
+	if err != nil {
+		return nil, err
+	}
+	if l == nil {
+		return &locationv1.GetDriverLocationResponse{}, nil
+	}
+
+	return &locationv1.GetDriverLocationResponse{Location: &locationv1.Location{Lat: l.Lat, Lng: l.Lng}}, nil
+}
