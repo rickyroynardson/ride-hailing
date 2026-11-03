@@ -2,12 +2,27 @@ syntax = "proto3";
 
 package payment.v1;
 
+import "google/api/annotations.proto";
 service PaymentService {
   rpc ChargeRide(ChargeRideRequest) returns (ChargeRideResponse) {}
-  rpc GetCharge(GetChargeRequest) returns (GetChargeResponse) {}
-  rpc RetryCharge(RetryChargeRequest) returns (RetryChargeResponse) {}
-  rpc SetPaymentMethod(SetPaymentMethodRequest) returns (SetPaymentMethodResponse) {}
-  rpc GetEarnings(GetEarningsRequest) returns (GetEarningsResponse) {}
+  rpc GetCharge(GetChargeRequest) returns (GetChargeResponse) {
+    option (google.api.http) = {get: "/v1/rides/{ride_id}/charge"};
+  }
+  rpc RetryCharge(RetryChargeRequest) returns (RetryChargeResponse) {
+    option (google.api.http) = {
+      post: "/v1/rides/{ride_id}/charge:retry"
+      body: "*"
+    };
+  }
+  rpc SetPaymentMethod(SetPaymentMethodRequest) returns (SetPaymentMethodResponse) {
+    option (google.api.http) = {
+      put: "/v1/me/payment-method"
+      body: "*"
+    };
+  }
+  rpc GetEarnings(GetEarningsRequest) returns (GetEarningsResponse) {
+    option (google.api.http) = {get: "/v1/driver/earnings"};
+  }
   rpc RefundCharge(RefundChargeRequest) returns (RefundChargeResponse) {}
 }
 

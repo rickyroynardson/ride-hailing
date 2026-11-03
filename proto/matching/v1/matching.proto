@@ -2,13 +2,29 @@ syntax = "proto3";
 
 package matching.v1;
 
+import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
 service MatchingService {
   rpc StartMatching(StartMatchingRequest) returns (StartMatchingResponse) {}
-  rpc GetOffer(GetOfferRequest) returns (GetOfferResponse) {}
-  rpc AcceptOffer(AcceptOfferRequest) returns (AcceptOfferResponse) {}
-  rpc DeclineOffer(DeclineOfferRequest) returns (DeclineOfferResponse) {}
+  rpc GetOffer(GetOfferRequest) returns (GetOfferResponse) {
+    option (google.api.http) = {get: "/v1/driver/offer"};
+  }
+  rpc WatchOffers(WatchOffersRequest) returns (stream WatchOffersResponse) {
+    option (google.api.http) = {get: "/v1/driver/offer:watch"};
+  }
+  rpc AcceptOffer(AcceptOfferRequest) returns (AcceptOfferResponse) {
+    option (google.api.http) = {
+      post: "/v1/offers/{offer_id}:accept"
+      body: "*"
+    };
+  }
+  rpc DeclineOffer(DeclineOfferRequest) returns (DeclineOfferResponse) {
+    option (google.api.http) = {
+      post: "/v1/offers/{offer_id}:decline"
+      body: "*"
+    };
+  }
   rpc CancelMatching(CancelMatchingRequest) returns (CancelMatchingResponse) {}
 }
 
@@ -33,6 +49,16 @@ message GetOfferRequest {}
 
 // Unset when the driver has no pending offer.
 message GetOfferResponse {
+  Offer offer = 1;
+}
+
+// Streams the calling driver's pending offer: what GetOffer would say at once, then again whenever it changes (a new
+// offer, or the current one answered, expired or withdrawn). It doesn't end by itself; a client that reconnects starts
+// from the current state.
+message WatchOffersRequest {}
+
+// offer is unset when the driver has no pending offer.
+message WatchOffersResponse {
   Offer offer = 1;
 }
 

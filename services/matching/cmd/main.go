@@ -83,7 +83,8 @@ func main() {
 	defer rideConn.Close()
 
 	matchingRepo := matching.NewRepository(dbpool)
-	matchingService := matching.NewService(matchingRepo, locationv1.NewLocationServiceClient(locationConn), ridev1.NewRideServiceClient(rideConn))
+	hub := postgres.NewHub(dbpool, matching.OfferChangedChannel)
+	matchingService := matching.NewService(matchingRepo, locationv1.NewLocationServiceClient(locationConn), ridev1.NewRideServiceClient(rideConn), hub)
 
 	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), matchingService)
 
@@ -91,6 +92,7 @@ func main() {
 	// single SQL statement or a unique index.
 	tickCtx, stopTick := context.WithCancel(context.Background())
 	go loop.Run(tickCtx, lg, "matching tick", time.Second, 30*time.Second, matchingService.Tick)
+	go loop.Run(tickCtx, lg, "offer change listener", time.Second, 30*time.Second, hub.Listen)
 
 	r := chi.NewRouter()
 
@@ -131,7 +133,18 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	gs.GracefulStop()
+	// GracefulStop waits for every RPC, and a WatchOffers stream never ends by itself. Past the deadline, Stop ends
+	// what is left; those clients reconnect to another replica.
+	stopped := make(chan struct{})
+	go func() {
+		gs.GracefulStop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		gs.Stop()
+	}
 	if err := sv.Shutdown(ctx); err != nil {
 		lg.Fatal("failed to shutdown server", zap.Error(err))
 	}

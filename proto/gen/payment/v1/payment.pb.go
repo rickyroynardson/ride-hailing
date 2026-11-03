@@ -7,6 +7,7 @@
 package paymentv1
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -977,7 +978,7 @@ var File_payment_v1_payment_proto protoreflect.FileDescriptor
 const file_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x18payment/v1/payment.proto\x12\n" +
-	"payment.v1\";\n" +
+	"payment.v1\x1a\x1cgoogle/api/annotations.proto\";\n" +
 	"\x05Money\x12\x16\n" +
 	"\x06amount\x18\x01 \x01(\x03R\x06amount\x12\x1a\n" +
 	"\bcurrency\x18\x02 \x01(\tR\bcurrency\"\xbb\x01\n" +
@@ -1037,14 +1038,14 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"\x19REFUND_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15REFUND_STATUS_PENDING\x10\x01\x12\x1b\n" +
 	"\x17REFUND_STATUS_SUCCEEDED\x10\x02\x12\x18\n" +
-	"\x14REFUND_STATUS_FAILED\x10\x032\x85\x04\n" +
+	"\x14REFUND_STATUS_FAILED\x10\x032\x8d\x05\n" +
 	"\x0ePaymentService\x12M\n" +
 	"\n" +
-	"ChargeRide\x12\x1d.payment.v1.ChargeRideRequest\x1a\x1e.payment.v1.ChargeRideResponse\"\x00\x12J\n" +
-	"\tGetCharge\x12\x1c.payment.v1.GetChargeRequest\x1a\x1d.payment.v1.GetChargeResponse\"\x00\x12P\n" +
-	"\vRetryCharge\x12\x1e.payment.v1.RetryChargeRequest\x1a\x1f.payment.v1.RetryChargeResponse\"\x00\x12_\n" +
-	"\x10SetPaymentMethod\x12#.payment.v1.SetPaymentMethodRequest\x1a$.payment.v1.SetPaymentMethodResponse\"\x00\x12P\n" +
-	"\vGetEarnings\x12\x1e.payment.v1.GetEarningsRequest\x1a\x1f.payment.v1.GetEarningsResponse\"\x00\x12S\n" +
+	"ChargeRide\x12\x1d.payment.v1.ChargeRideRequest\x1a\x1e.payment.v1.ChargeRideResponse\"\x00\x12l\n" +
+	"\tGetCharge\x12\x1c.payment.v1.GetChargeRequest\x1a\x1d.payment.v1.GetChargeResponse\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/v1/rides/{ride_id}/charge\x12{\n" +
+	"\vRetryCharge\x12\x1e.payment.v1.RetryChargeRequest\x1a\x1f.payment.v1.RetryChargeResponse\"+\x82\xd3\xe4\x93\x02%:\x01*\" /v1/rides/{ride_id}/charge:retry\x12\x7f\n" +
+	"\x10SetPaymentMethod\x12#.payment.v1.SetPaymentMethodRequest\x1a$.payment.v1.SetPaymentMethodResponse\" \x82\xd3\xe4\x93\x02\x1a:\x01*\x1a\x15/v1/me/payment-method\x12k\n" +
+	"\vGetEarnings\x12\x1e.payment.v1.GetEarningsRequest\x1a\x1f.payment.v1.GetEarningsResponse\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/v1/driver/earnings\x12S\n" +
 	"\fRefundCharge\x12\x1f.payment.v1.RefundChargeRequest\x1a .payment.v1.RefundChargeResponse\"\x00B\xaf\x01\n" +
 	"\x0ecom.payment.v1B\fPaymentProtoP\x01ZFgithub.com/rickyroynardson/ride-hailing/proto/gen/payment/v1;paymentv1\xa2\x02\x03PXX\xaa\x02\n" +
 	"Payment.V1\xca\x02\n" +

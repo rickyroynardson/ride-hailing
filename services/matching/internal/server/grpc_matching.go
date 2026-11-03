@@ -8,6 +8,7 @@ import (
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	"github.com/rickyroynardson/ride-hailing/services/matching/internal/matching"
 	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -47,12 +48,30 @@ func (s *MatchingServer) GetOffer(ctx context.Context, _ *matchingv1.GetOfferReq
 		return &matchingv1.GetOfferResponse{}, err
 	}
 
-	return &matchingv1.GetOfferResponse{Offer: &matchingv1.Offer{
+	return &matchingv1.GetOfferResponse{Offer: toOfferProto(o)}, nil
+}
+
+func (s *MatchingServer) WatchOffers(_ *matchingv1.WatchOffersRequest, stream grpc.ServerStreamingServer[matchingv1.WatchOffersResponse]) error {
+	caller := grpcserver.CallerFrom(stream.Context())
+	if !caller.Driver {
+		return matching.ErrNotDriver
+	}
+	return s.service.WatchOffers(stream.Context(), caller.UserID, func(o *matching.DriverOffer) error {
+		res := &matchingv1.WatchOffersResponse{}
+		if o != nil {
+			res.Offer = toOfferProto(o)
+		}
+		return stream.Send(res)
+	})
+}
+
+func toOfferProto(o *matching.DriverOffer) *matchingv1.Offer {
+	return &matchingv1.Offer{
 		OfferId:   o.ID,
 		RideId:    o.RideID,
 		Pickup:    &matchingv1.Location{Lat: o.Pickup.Lat, Lng: o.Pickup.Lng},
 		ExpiresAt: timestamppb.New(o.ExpiresAt),
-	}}, nil
+	}
 }
 
 func (s *MatchingServer) AcceptOffer(ctx context.Context, req *matchingv1.AcceptOfferRequest) (*matchingv1.AcceptOfferResponse, error) {

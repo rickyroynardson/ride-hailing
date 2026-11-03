@@ -7,6 +7,7 @@
 package userv1
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -370,7 +371,7 @@ var File_user_v1_user_proto protoreflect.FileDescriptor
 
 const file_user_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x0e\n" +
+	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x0e\n" +
 	"\fGetMeRequest\"q\n" +
 	"\rGetMeResponse\x12!\n" +
 	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\x12=\n" +
@@ -394,10 +395,10 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x14\n" +
 	"\x05phone\x18\x04 \x01(\tR\x05phone\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2\x9c\x01\n" +
-	"\vUserService\x128\n" +
-	"\x05GetMe\x12\x15.user.v1.GetMeRequest\x1a\x16.user.v1.GetMeResponse\"\x00\x12S\n" +
-	"\x0eRegisterDriver\x12\x1e.user.v1.RegisterDriverRequest\x1a\x1f.user.v1.RegisterDriverResponse\"\x00B\x97\x01\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2\xc2\x01\n" +
+	"\vUserService\x12F\n" +
+	"\x05GetMe\x12\x15.user.v1.GetMeRequest\x1a\x16.user.v1.GetMeResponse\"\x0e\x82\xd3\xe4\x93\x02\b\x12\x06/v1/me\x12k\n" +
+	"\x0eRegisterDriver\x12\x1e.user.v1.RegisterDriverRequest\x1a\x1f.user.v1.RegisterDriverResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*\"\r/v1/me/driverB\x97\x01\n" +
 	"\vcom.user.v1B\tUserProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/user/v1;userv1\xa2\x02\x03UXX\xaa\x02\aUser.V1\xca\x02\aUser\\V1\xe2\x02\x13User\\V1\\GPBMetadata\xea\x02\bUser::V1b\x06proto3"
 
 var (

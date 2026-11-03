@@ -1,6 +1,10 @@
 version: v2
 managed:
   enabled: true
+  disable:
+    # googleapis ships its own go_package; overriding it would point annotations.proto at our module.
+    - file_option: go_package
+      module: buf.build/googleapis/googleapis
   override:
     - file_option: go_package_prefix
       value: github.com/rickyroynardson/ride-hailing/proto/gen
@@ -11,3 +15,10 @@ plugins:
   - remote: buf.build/grpc/go
     out: gen
     opt: paths=source_relative
+  # REST/JSON handlers for the gateway. Only RPCs with a google.api.http option get a route, so service-to-service
+  # RPCs stay off the public API simply by having none.
+  - remote: buf.build/grpc-ecosystem/gateway
+    out: gen
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=false

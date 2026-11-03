@@ -108,6 +108,24 @@ services:
       postgres:
         condition: service_healthy
 
+  # The public API: the only service clients talk to. The others keep their localhost ports for development
+  # (grpcurl, running a service from the host); a deployment would expose only this one.
+  gateway:
+    container_name: gateway
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8085:8080"
+    environment:
+      # Its own Redis database, apart from location's driver positions.
+      REDIS_URL: "redis://redis:6379/1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   # Development-only UI: holds the JWT secret and reads every service's database. Never deploy it.
   devconsole:
     container_name: devconsole
@@ -207,6 +225,7 @@ services:
       - location
       - matching
       - payment
+      - gateway
 
 volumes:
   postgres_data:

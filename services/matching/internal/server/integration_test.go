@@ -17,6 +17,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
@@ -261,7 +262,7 @@ func TestIntegration(t *testing.T) {
 		second = "dddddddd-0000-0000-0000-000000000012"
 	)
 	// Same fakes as the server, so ticks see the same location and ride behaviour as RPCs.
-	svc := matching.NewService(matching.NewRepository(pool), location, ride)
+	svc := matching.NewService(matching.NewRepository(pool), location, ride, postgres.NewHub(pool, matching.OfferChangedChannel))
 	tick := func() {
 		t.Helper()
 		if err := svc.Tick(ctx); err != nil {
@@ -413,6 +414,78 @@ func TestIntegration(t *testing.T) {
 	}
 	driver := func(n int) string { return fmt.Sprintf("eeeeeeee-0000-0000-0000-%012d", n) }
 	rideN := func(n int) string { return fmt.Sprintf("bbbbbbbb-0000-0000-0000-%012d", n) }
+
+	// WatchOffers: a driver's stream says "no offer" at once, then pushes each offer and its end, without polling.
+	watchCtx, stopWatch := context.WithCancel(withDriverToken(t, ctx, driver(20)))
+	defer stopWatch()
+	stream, err := client.WatchOffers(watchCtx, &matchingv1.WatchOffersRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := func(what string) *matchingv1.Offer {
+		t.Helper()
+		got := make(chan *matchingv1.WatchOffersResponse, 1)
+		errc := make(chan error, 1)
+		go func() {
+			res, err := stream.Recv()
+			if err != nil {
+				errc <- err
+				return
+			}
+			got <- res
+		}()
+		select {
+		case res := <-got:
+			return res.GetOffer()
+		case err := <-errc:
+			t.Fatalf("%s: %v", what, err)
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: no message within 3s", what)
+		}
+		return nil
+	}
+	if o := next("first message"); o != nil {
+		t.Fatalf("first message: %+v, want no offer", o)
+	}
+	watchedRide := rideN(20)
+	start(watchedRide, driver(20), driver(21))
+	pushed := next("offer made")
+	if pushed.GetRideId() != watchedRide || pushed.GetPickup().GetLat() != pickup.GetLat() {
+		t.Fatalf("pushed offer: %+v", pushed)
+	}
+	if err := decline(driver(20), pushed.GetOfferId()); err != nil {
+		t.Fatal(err)
+	}
+	if o := next("offer declined"); o != nil {
+		t.Fatalf("after declining: %+v, want no offer", o)
+	}
+	// An offer that runs out is pushed away at its deadline, even before the tick marks it expired.
+	expiringRide := rideN(21)
+	start(expiringRide) // no driver nearby: the request waits, without an offer
+	pool.Exec(ctx, `INSERT INTO offers(ride_id, driver_id, status, expires_at) VALUES ($1, $2, 'pending', now() + interval '500 milliseconds')`,
+		expiringRide, driver(20))
+	if o := next("short offer"); o.GetRideId() != expiringRide {
+		t.Fatalf("short offer: %+v", o)
+	}
+	if o := next("offer expiring"); o != nil {
+		t.Fatalf("after the deadline: %+v, want no offer", o)
+	}
+	stopWatch()
+	for _, r := range []string{watchedRide, expiringRide} { // leave nothing waiting for the steps below
+		if _, err := client.CancelMatching(service, &matchingv1.CancelMatchingRequest{RideId: r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = client.WatchOffers(withUserToken(t, ctx, driver(1)), &matchingv1.WatchOffersRequest{})
+	if err == nil {
+		s, _ := client.WatchOffers(withUserToken(t, ctx, driver(1)), &matchingv1.WatchOffersRequest{})
+		_, err = s.Recv()
+	}
+	wantCode(t, "watch offers without driver claim", err, codes.PermissionDenied)
+	noToken, _ := client.WatchOffers(ctx, &matchingv1.WatchOffersRequest{})
+	_, err = noToken.Recv()
+	wantCode(t, "watch offers without token", err, codes.Unauthenticated)
 
 	// GetOffer: only the offered driver sees it, with the pickup; riders can't call it.
 	rideE := rideN(1)
@@ -600,7 +673,12 @@ func migrate(t *testing.T, url string) {
 
 func startServer(t *testing.T, pool *pgxpool.Pool, location locationv1.LocationServiceClient, ride ridev1.RideServiceClient) matchingv1.MatchingServiceClient {
 	t.Helper()
-	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier(testSecret), matching.NewService(matching.NewRepository(pool), location, ride))
+	hub := postgres.NewHub(pool, matching.OfferChangedChannel)
+	listenCtx, stopListen := context.WithCancel(context.Background())
+	t.Cleanup(stopListen)
+	go loop.Run(listenCtx, zap.NewNop(), "offer change listener", 100*time.Millisecond, 100*time.Millisecond, hub.Listen)
+
+	gs := server.NewGRPCServer(zap.NewNop(), jwtauth.NewVerifier(testSecret), matching.NewService(matching.NewRepository(pool), location, ride, hub))
 	lis := bufconn.Listen(1 << 20)
 	go gs.Serve(lis)
 	t.Cleanup(gs.Stop)

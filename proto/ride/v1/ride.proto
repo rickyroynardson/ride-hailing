@@ -2,18 +2,46 @@ syntax = "proto3";
 
 package ride.v1;
 
+import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
 service RideService {
-  rpc EstimateFare(EstimateFareRequest) returns (EstimateFareResponse);
-  rpc CreateRide(CreateRideRequest) returns (CreateRideResponse);
+  rpc EstimateFare(EstimateFareRequest) returns (EstimateFareResponse) {
+    option (google.api.http) = {
+      post: "/v1/fares:estimate"
+      body: "*"
+    };
+  }
+  rpc CreateRide(CreateRideRequest) returns (CreateRideResponse) {
+    option (google.api.http) = {
+      post: "/v1/rides"
+      body: "*"
+    };
+  }
   rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
   rpc AssignDriver(AssignDriverRequest) returns (AssignDriverResponse);
   rpc MarkNoDriver(MarkNoDriverRequest) returns (MarkNoDriverResponse);
-  rpc CancelRide(CancelRideRequest) returns (CancelRideResponse);
-  rpc StartRide(StartRideRequest) returns (StartRideResponse);
-  rpc CompleteRide(CompleteRideRequest) returns (CompleteRideResponse);
-  rpc WatchRide(WatchRideRequest) returns (stream WatchRideResponse);
+  rpc CancelRide(CancelRideRequest) returns (CancelRideResponse) {
+    option (google.api.http) = {
+      post: "/v1/rides/{ride_id}:cancel"
+      body: "*"
+    };
+  }
+  rpc StartRide(StartRideRequest) returns (StartRideResponse) {
+    option (google.api.http) = {
+      post: "/v1/rides/{ride_id}:start"
+      body: "*"
+    };
+  }
+  rpc CompleteRide(CompleteRideRequest) returns (CompleteRideResponse) {
+    option (google.api.http) = {
+      post: "/v1/rides/{ride_id}:complete"
+      body: "*"
+    };
+  }
+  rpc WatchRide(WatchRideRequest) returns (stream WatchRideResponse) {
+    option (google.api.http) = {get: "/v1/rides/{ride_id}:watch"};
+  }
   rpc RecordPayment(RecordPaymentRequest) returns (RecordPaymentResponse);
 }
 

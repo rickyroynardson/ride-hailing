@@ -7,6 +7,7 @@
 package ridev1
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1306,7 +1307,7 @@ var File_ride_v1_ride_proto protoreflect.FileDescriptor
 
 const file_ride_v1_ride_proto_rawDesc = "" +
 	"\n" +
-	"\x12ride/v1/ride.proto\x12\aride.v1\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
+	"\x12ride/v1/ride.proto\x12\aride.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
 	"\bLocation\x12\x10\n" +
 	"\x03lat\x18\x01 \x01(\x01R\x03lat\x12\x10\n" +
 	"\x03lng\x18\x02 \x01(\x01R\x03lng\";\n" +
@@ -1385,19 +1386,19 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\fCancelReason\x12\x1d\n" +
 	"\x19CANCEL_REASON_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13CANCEL_REASON_RIDER\x10\x01\x12\x1b\n" +
-	"\x17CANCEL_REASON_NO_DRIVER\x10\x022\x94\x06\n" +
-	"\vRideService\x12K\n" +
-	"\fEstimateFare\x12\x1c.ride.v1.EstimateFareRequest\x1a\x1d.ride.v1.EstimateFareResponse\x12E\n" +
+	"\x17CANCEL_REASON_NO_DRIVER\x10\x022\xe2\a\n" +
+	"\vRideService\x12j\n" +
+	"\fEstimateFare\x12\x1c.ride.v1.EstimateFareRequest\x1a\x1d.ride.v1.EstimateFareResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/fares:estimate\x12[\n" +
 	"\n" +
-	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponse\x12i\n" +
+	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponse\"\x14\x82\xd3\xe4\x93\x02\x0e:\x01*\"\t/v1/rides\x12i\n" +
 	"\x16FilterAvailableDrivers\x12&.ride.v1.FilterAvailableDriversRequest\x1a'.ride.v1.FilterAvailableDriversResponse\x12K\n" +
 	"\fAssignDriver\x12\x1c.ride.v1.AssignDriverRequest\x1a\x1d.ride.v1.AssignDriverResponse\x12K\n" +
-	"\fMarkNoDriver\x12\x1c.ride.v1.MarkNoDriverRequest\x1a\x1d.ride.v1.MarkNoDriverResponse\x12E\n" +
+	"\fMarkNoDriver\x12\x1c.ride.v1.MarkNoDriverRequest\x1a\x1d.ride.v1.MarkNoDriverResponse\x12l\n" +
 	"\n" +
-	"CancelRide\x12\x1a.ride.v1.CancelRideRequest\x1a\x1b.ride.v1.CancelRideResponse\x12B\n" +
-	"\tStartRide\x12\x19.ride.v1.StartRideRequest\x1a\x1a.ride.v1.StartRideResponse\x12K\n" +
-	"\fCompleteRide\x12\x1c.ride.v1.CompleteRideRequest\x1a\x1d.ride.v1.CompleteRideResponse\x12D\n" +
-	"\tWatchRide\x12\x19.ride.v1.WatchRideRequest\x1a\x1a.ride.v1.WatchRideResponse0\x01\x12N\n" +
+	"CancelRide\x12\x1a.ride.v1.CancelRideRequest\x1a\x1b.ride.v1.CancelRideResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/v1/rides/{ride_id}:cancel\x12h\n" +
+	"\tStartRide\x12\x19.ride.v1.StartRideRequest\x1a\x1a.ride.v1.StartRideResponse\"$\x82\xd3\xe4\x93\x02\x1e:\x01*\"\x19/v1/rides/{ride_id}:start\x12t\n" +
+	"\fCompleteRide\x12\x1c.ride.v1.CompleteRideRequest\x1a\x1d.ride.v1.CompleteRideResponse\"'\x82\xd3\xe4\x93\x02!:\x01*\"\x1c/v1/rides/{ride_id}:complete\x12g\n" +
+	"\tWatchRide\x12\x19.ride.v1.WatchRideRequest\x1a\x1a.ride.v1.WatchRideResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/v1/rides/{ride_id}:watch0\x01\x12N\n" +
 	"\rRecordPayment\x12\x1d.ride.v1.RecordPaymentRequest\x1a\x1e.ride.v1.RecordPaymentResponseB\x97\x01\n" +
 	"\vcom.ride.v1B\tRideProtoP\x01Z@github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1;ridev1\xa2\x02\x03RXX\xaa\x02\aRide.V1\xca\x02\aRide\\V1\xe2\x02\x13Ride\\V1\\GPBMetadata\xea\x02\bRide::V1b\x06proto3"
 

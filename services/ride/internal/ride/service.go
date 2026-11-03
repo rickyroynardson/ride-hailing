@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 )
@@ -20,11 +21,11 @@ const (
 
 type RideService struct {
 	repository *RideRepository
-	hub        *Hub
+	hub        *postgres.Hub
 	location   locationv1.LocationServiceClient
 }
 
-func NewService(repo *RideRepository, hub *Hub, location locationv1.LocationServiceClient) *RideService {
+func NewService(repo *RideRepository, hub *postgres.Hub, location locationv1.LocationServiceClient) *RideService {
 	return &RideService{repository: repo, hub: hub, location: location}
 }
 

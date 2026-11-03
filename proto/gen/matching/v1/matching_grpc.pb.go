@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	MatchingService_StartMatching_FullMethodName  = "/matching.v1.MatchingService/StartMatching"
 	MatchingService_GetOffer_FullMethodName       = "/matching.v1.MatchingService/GetOffer"
+	MatchingService_WatchOffers_FullMethodName    = "/matching.v1.MatchingService/WatchOffers"
 	MatchingService_AcceptOffer_FullMethodName    = "/matching.v1.MatchingService/AcceptOffer"
 	MatchingService_DeclineOffer_FullMethodName   = "/matching.v1.MatchingService/DeclineOffer"
 	MatchingService_CancelMatching_FullMethodName = "/matching.v1.MatchingService/CancelMatching"
@@ -32,6 +33,7 @@ const (
 type MatchingServiceClient interface {
 	StartMatching(ctx context.Context, in *StartMatchingRequest, opts ...grpc.CallOption) (*StartMatchingResponse, error)
 	GetOffer(ctx context.Context, in *GetOfferRequest, opts ...grpc.CallOption) (*GetOfferResponse, error)
+	WatchOffers(ctx context.Context, in *WatchOffersRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchOffersResponse], error)
 	AcceptOffer(ctx context.Context, in *AcceptOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error)
 	DeclineOffer(ctx context.Context, in *DeclineOfferRequest, opts ...grpc.CallOption) (*DeclineOfferResponse, error)
 	CancelMatching(ctx context.Context, in *CancelMatchingRequest, opts ...grpc.CallOption) (*CancelMatchingResponse, error)
@@ -64,6 +66,25 @@ func (c *matchingServiceClient) GetOffer(ctx context.Context, in *GetOfferReques
 	}
 	return out, nil
 }
+
+func (c *matchingServiceClient) WatchOffers(ctx context.Context, in *WatchOffersRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchOffersResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MatchingService_ServiceDesc.Streams[0], MatchingService_WatchOffers_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchOffersRequest, WatchOffersResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MatchingService_WatchOffersClient = grpc.ServerStreamingClient[WatchOffersResponse]
 
 func (c *matchingServiceClient) AcceptOffer(ctx context.Context, in *AcceptOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -101,6 +122,7 @@ func (c *matchingServiceClient) CancelMatching(ctx context.Context, in *CancelMa
 type MatchingServiceServer interface {
 	StartMatching(context.Context, *StartMatchingRequest) (*StartMatchingResponse, error)
 	GetOffer(context.Context, *GetOfferRequest) (*GetOfferResponse, error)
+	WatchOffers(*WatchOffersRequest, grpc.ServerStreamingServer[WatchOffersResponse]) error
 	AcceptOffer(context.Context, *AcceptOfferRequest) (*AcceptOfferResponse, error)
 	DeclineOffer(context.Context, *DeclineOfferRequest) (*DeclineOfferResponse, error)
 	CancelMatching(context.Context, *CancelMatchingRequest) (*CancelMatchingResponse, error)
@@ -119,6 +141,9 @@ func (UnimplementedMatchingServiceServer) StartMatching(context.Context, *StartM
 }
 func (UnimplementedMatchingServiceServer) GetOffer(context.Context, *GetOfferRequest) (*GetOfferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOffer not implemented")
+}
+func (UnimplementedMatchingServiceServer) WatchOffers(*WatchOffersRequest, grpc.ServerStreamingServer[WatchOffersResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchOffers not implemented")
 }
 func (UnimplementedMatchingServiceServer) AcceptOffer(context.Context, *AcceptOfferRequest) (*AcceptOfferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AcceptOffer not implemented")
@@ -185,6 +210,17 @@ func _MatchingService_GetOffer_Handler(srv interface{}, ctx context.Context, dec
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _MatchingService_WatchOffers_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchOffersRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MatchingServiceServer).WatchOffers(m, &grpc.GenericServerStream[WatchOffersRequest, WatchOffersResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MatchingService_WatchOffersServer = grpc.ServerStreamingServer[WatchOffersResponse]
 
 func _MatchingService_AcceptOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AcceptOfferRequest)
@@ -268,6 +304,12 @@ var MatchingService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MatchingService_CancelMatching_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchOffers",
+			Handler:       _MatchingService_WatchOffers_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "matching/v1/matching.proto",
 }

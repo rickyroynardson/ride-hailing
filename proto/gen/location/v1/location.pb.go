@@ -7,6 +7,7 @@
 package locationv1
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -561,7 +562,7 @@ var File_location_v1_location_proto protoreflect.FileDescriptor
 
 const file_location_v1_location_proto_rawDesc = "" +
 	"\n" +
-	"\x1alocation/v1/location.proto\x12\vlocation.v1\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
+	"\x1alocation/v1/location.proto\x12\vlocation.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
 	"\bLocation\x12\x10\n" +
 	"\x03lat\x18\x01 \x01(\x01R\x03lat\x12\x10\n" +
 	"\x03lng\x18\x02 \x01(\x01R\x03lng\"\xb6\x01\n" +
@@ -593,10 +594,10 @@ const file_location_v1_location_proto_rawDesc = "" +
 	"\x15UPDATE_OUTCOME_STORED\x10\x01\x12%\n" +
 	"!UPDATE_OUTCOME_IGNORED_INACCURATE\x10\x02\x12\"\n" +
 	"\x1eUPDATE_OUTCOME_IGNORED_TOO_OLD\x10\x03\x12'\n" +
-	"#UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER\x10\x042\x9a\x03\n" +
-	"\x0fLocationService\x12m\n" +
-	"\x14UpdateDriverLocation\x12(.location.v1.UpdateDriverLocationRequest\x1a).location.v1.UpdateDriverLocationResponse\"\x00\x12L\n" +
-	"\tGoOffline\x12\x1d.location.v1.GoOfflineRequest\x1a\x1e.location.v1.GoOfflineResponse\"\x00\x12d\n" +
+	"#UPDATE_OUTCOME_IGNORED_OUT_OF_ORDER\x10\x042\xd4\x03\n" +
+	"\x0fLocationService\x12\x8b\x01\n" +
+	"\x14UpdateDriverLocation\x12(.location.v1.UpdateDriverLocationRequest\x1a).location.v1.UpdateDriverLocationResponse\"\x1e\x82\xd3\xe4\x93\x02\x18:\x01*\x1a\x13/v1/driver/location\x12g\n" +
+	"\tGoOffline\x12\x1d.location.v1.GoOfflineRequest\x1a\x1e.location.v1.GoOfflineResponse\"\x1b\x82\xd3\xe4\x93\x02\x15*\x13/v1/driver/location\x12d\n" +
 	"\x11ListNearbyDrivers\x12%.location.v1.ListNearbyDriversRequest\x1a&.location.v1.ListNearbyDriversResponse\"\x00\x12d\n" +
 	"\x11GetDriverLocation\x12%.location.v1.GetDriverLocationRequest\x1a&.location.v1.GetDriverLocationResponse\"\x00B\xb7\x01\n" +
 	"\x0fcom.location.v1B\rLocationProtoP\x01ZHgithub.com/rickyroynardson/ride-hailing/proto/gen/location/v1;locationv1\xa2\x02\x03LXX\xaa\x02\vLocation.V1\xca\x02\vLocation\\V1\xe2\x02\x17Location\\V1\\GPBMetadata\xea\x02\fLocation::V1b\x06proto3"

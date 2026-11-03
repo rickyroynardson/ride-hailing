@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
@@ -23,11 +24,16 @@ type MatchingService struct {
 	repository *MatchingRepository
 	location   locationv1.LocationServiceClient
 	ride       ridev1.RideServiceClient
+	hub        *postgres.Hub
 }
 
-func NewService(repo *MatchingRepository, location locationv1.LocationServiceClient, ride ridev1.RideServiceClient) *MatchingService {
-	return &MatchingService{repository: repo, location: location, ride: ride}
+func NewService(repo *MatchingRepository, location locationv1.LocationServiceClient, ride ridev1.RideServiceClient, hub *postgres.Hub) *MatchingService {
+	return &MatchingService{repository: repo, location: location, ride: ride, hub: hub}
 }
+
+// OfferChangedChannel is the Postgres channel the offers_notify_changed trigger announces offer changes on, with the
+// driver's ID as payload.
+const OfferChangedChannel = "offer_changed"
 
 // StartMatching records the ride as needing a driver and offers it to the nearest available one. It returns the
 // offer, or nil if no driver is available yet; Tick keeps trying until the request's deadline. It is idempotent:
@@ -207,6 +213,61 @@ func (s *MatchingService) notifyRide(ctx context.Context, req NoDriverRequest) (
 // GetOffer returns the driver's pending offer, or nil. Driver apps poll it.
 func (s *MatchingService) GetOffer(ctx context.Context, driverID string) (*DriverOffer, error) {
 	return s.repository.DriverPendingOffer(ctx, driverID)
+}
+
+// WatchOffers calls send with the driver's pending offer (nil for none), then again whenever it changes, until ctx
+// ends. It replaces polling GetOffer: a driver hears of an offer the moment it is made, out of the 15s they have.
+func (s *MatchingService) WatchOffers(ctx context.Context, driverID string, send func(*DriverOffer) error) error {
+	// A stream lives for many minutes; tracing what it reads would hang a span off the RPC per change.
+	ctx = telemetry.Untraced(ctx)
+
+	// Subscribe before the first read, so a change right after that read still wakes this stream.
+	changed, unsubscribe := s.hub.Subscribe(driverID)
+	defer unsubscribe()
+
+	var sent *DriverOffer
+	first := true
+	for {
+		o, err := s.repository.DriverPendingOffer(ctx, driverID)
+		if err != nil {
+			return err
+		}
+		if first || !sameOffer(o, sent) {
+			if err := send(o); err != nil {
+				return err
+			}
+			sent, first = o, false
+		}
+
+		if err := waitForChange(ctx, changed, o); err != nil {
+			return err
+		}
+	}
+}
+
+// waitForChange returns when the driver's offers change or the current offer's deadline passes, so the driver sees
+// it go even if expiring it is late.
+func waitForChange(ctx context.Context, changed <-chan struct{}, o *DriverOffer) error {
+	var expiry <-chan time.Time
+	if o != nil {
+		timer := time.NewTimer(time.Until(o.ExpiresAt))
+		defer timer.Stop()
+		expiry = timer.C
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-changed:
+	case <-expiry:
+	}
+	return nil
+}
+
+func sameOffer(a, b *DriverOffer) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.ID == b.ID
 }
 
 // AcceptOffer is a saga across two databases: the offer here, the ride in the ride service.
