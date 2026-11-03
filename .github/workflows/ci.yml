@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/ride/go.mod
+          cache: false
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l pkg proto services tools)
+          if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi
+      - name: buf lint
+        run: buf lint proto
+      - name: generated code is up to date
+        working-directory: proto
+        run: |
+          buf generate
+          git diff --exit-code -- gen || { echo "proto/gen is stale: run 'buf generate' in proto/"; exit 1; }
+          test -z "$(git status --porcelain -- gen)" || { echo "buf generate created files missing from git"; exit 1; }
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - pkg
+          - services/user
+          - services/ride
+          - services/location
+          - services/matching
+          - services/payment
+          - services/gateway
+          - tools/devconsole
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: go.mod is tidy
+        run: go mod tidy -diff
+      - run: go vet ./...
+      - name: go test
+        # Integration tests skip themselves without Docker, which would read as a pass. The runner has Docker, so here
+        # a skip means something is wrong: fail on it.
+        run: |
+          go test -race -count=1 -v ./... 2>&1 | tee test.log | grep -E '^(ok|FAIL|---|panic)' || true
+          if grep -E -- '--- SKIP' test.log; then echo "a test skipped; integration tests must run in CI"; exit 1; fi
+          if grep -qE '^(FAIL|panic)' test.log; then exit 1; fi
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: every service image builds
+        run: docker compose build
