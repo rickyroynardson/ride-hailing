@@ -14,7 +14,8 @@ import (
 
 // methodAccess lists RPCs that accept service tokens; every other RPC is for users only.
 var methodAccess = map[string]grpcserver.Access{
-	"/payment.v1.PaymentService/ChargeRide": grpcserver.ServicesOnly,
+	"/payment.v1.PaymentService/ChargeRide":   grpcserver.ServicesOnly,
+	"/payment.v1.PaymentService/RefundCharge": grpcserver.ServicesOnly,
 	// Reflection is a stream, so StreamAuth sees it; it lets grpcurl and Postman discover the API.
 	"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":      grpcserver.Public,
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo": grpcserver.Public,

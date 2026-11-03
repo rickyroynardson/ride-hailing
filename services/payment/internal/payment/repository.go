@@ -25,6 +25,15 @@ func split(amount int64) (platform, driver int64) {
 	return platform, amount - platform
 }
 
+// refundShares divides a refund between platform and driver, in proportion to the capture. It works from the running
+// total, so rounding can't drift: however many parts a charge is refunded in, the shares add up to exactly what the
+// capture took. refunded is what had already been refunded.
+func refundShares(refunded, amount int64) (platform, driver int64) {
+	before, _ := split(refunded)
+	after, _ := split(refunded + amount)
+	return after - before, amount - (after - before)
+}
+
 type PaymentRepository struct {
 	DB *pgxpool.Pool
 }
@@ -99,27 +108,33 @@ func (r *PaymentRepository) Capture(ctx context.Context, chargeID, providerRef s
 		}
 
 		platform, driver := split(amount)
-		entries := []struct {
-			account string
-			amount  int64
-		}{
+		return post(ctx, tx, chargeID, nil, currency, []entry{
 			{accountProvider, amount},
 			{accountPlatform, -platform},
 			{accountDriver + driverID, -driver},
-		}
-		for _, e := range entries {
-			if e.amount == 0 {
-				continue // the platform's share of a tiny charge can round to nothing
-			}
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO ledger_entries(charge_id, account, amount, currency) VALUES ($1, $2, $3, $4)`,
-				chargeID, e.account, e.amount, currency,
-			); err != nil {
-				return err
-			}
-		}
-		return nil
+		})
 	})
+}
+
+type entry struct {
+	account string
+	amount  int64
+}
+
+// post writes one posting to the ledger: the capture of a charge (refundID nil), or one refund of it.
+func post(ctx context.Context, tx pgx.Tx, chargeID string, refundID *string, currency string, entries []entry) error {
+	for _, e := range entries {
+		if e.amount == 0 {
+			continue // the platform's share of a tiny amount can round to nothing
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO ledger_entries(charge_id, refund_id, account, amount, currency) VALUES ($1, $2, $3, $4, $5)`,
+			chargeID, refundID, e.account, e.amount, currency,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Decline ends a pending charge as failed: the provider gave a definite no, so no money moved.

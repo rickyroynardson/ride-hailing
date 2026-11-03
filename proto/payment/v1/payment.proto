@@ -8,6 +8,7 @@ service PaymentService {
   rpc RetryCharge(RetryChargeRequest) returns (RetryChargeResponse) {}
   rpc SetPaymentMethod(SetPaymentMethodRequest) returns (SetPaymentMethodResponse) {}
   rpc GetEarnings(GetEarningsRequest) returns (GetEarningsResponse) {}
+  rpc RefundCharge(RefundChargeRequest) returns (RefundChargeResponse) {}
 }
 
 // An amount in the currency's smallest unit used here: whole rupiah for IDR.
@@ -58,6 +59,9 @@ message Charge {
   Money amount = 5;
   // Why the provider refused; empty unless the status is failed.
   string decline_reason = 6;
+  // What has actually gone back to the rider, in the charge's currency.
+  int64 refunded_amount = 7;
+  repeated Refund refunds = 8;
 }
 
 // The rider tries a declined charge again, usually after SetPaymentMethod. Idempotent: a pending or captured charge
@@ -68,8 +72,8 @@ message RetryChargeRequest {
 
 message RetryChargeResponse {}
 
-// Sets the caller's card, as the opaque token a provider issues. The fake provider's tokens are tok_ok, tok_declined
-// and tok_lost_response.
+// Sets the caller's card, as the opaque token a provider issues. The fake provider's tokens are tok_ok, tok_declined,
+// tok_lost_response, tok_refund_refused and tok_refund_lost.
 message SetPaymentMethodRequest {
   string token = 1;
 }
@@ -81,4 +85,37 @@ message GetEarningsRequest {}
 
 message GetEarningsResponse {
   repeated Money balances = 1;
+}
+
+enum RefundStatus {
+  REFUND_STATUS_UNSPECIFIED = 0;
+  REFUND_STATUS_PENDING = 1;
+  REFUND_STATUS_SUCCEEDED = 2;
+  REFUND_STATUS_FAILED = 3;
+}
+
+message Refund {
+  string refund_id = 1;
+  Money amount = 2;
+  RefundStatus status = 3;
+  string reason = 4;
+  // Why the provider refused; empty unless the status is failed.
+  string failure_reason = 5;
+}
+
+// Returns part or all of a captured charge. Returns once the refund is saved; the provider is called in the
+// background. Idempotent per idempotency_key: a repeat returns the first refund. A pending refund counts against what
+// is left to refund; a failed one doesn't.
+// NOT_FOUND: no charge for this ride. FAILED_PRECONDITION: the charge isn't captured, the amount is more than what is
+// left, or the key was already used for a different refund.
+message RefundChargeRequest {
+  string ride_id = 1;
+  // In the charge's currency.
+  int64 amount = 2;
+  string idempotency_key = 3;
+  string reason = 4;
+}
+
+message RefundChargeResponse {
+  Refund refund = 1;
 }

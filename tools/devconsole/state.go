@@ -45,6 +45,10 @@ type chargeRow struct {
 	DeclineReason string `json:"declineReason"`
 	Attempts      int    `json:"attempts"`
 	LastError     string `json:"lastError"`
+	// Refunded has gone back to the rider; RefundPending is on its way, or its outcome is unknown.
+	Refunded      int64  `json:"refunded"`
+	RefundPending int64  `json:"refundPending"`
+	RefundFailure string `json:"refundFailure"`
 }
 
 type earningRow struct {
@@ -131,11 +135,16 @@ func (c *console) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 	state["matchRequests"] = requests
 
-	charges, err := collect(ctx, c.paymentsDB, `SELECT ride_id, driver_id, kind, status, amount, currency,
-		COALESCE(decline_reason, ''), attempts, COALESCE(last_error, '') FROM charges ORDER BY created_at DESC LIMIT 50`,
+	charges, err := collect(ctx, c.paymentsDB, `SELECT c.ride_id, c.driver_id, c.kind, c.status, c.amount, c.currency,
+		COALESCE(c.decline_reason, ''), c.attempts, COALESCE(c.last_error, ''),
+		COALESCE(sum(f.amount) FILTER (WHERE f.status = 'succeeded'), 0)::bigint,
+		COALESCE(sum(f.amount) FILTER (WHERE f.status = 'pending'), 0)::bigint,
+		COALESCE(max(f.failure_reason), '')
+		FROM charges c LEFT JOIN refunds f ON f.charge_id = c.id
+		GROUP BY c.id ORDER BY c.created_at DESC LIMIT 50`,
 		func(row pgx.CollectableRow) (chargeRow, error) {
 			var x chargeRow
-			err := row.Scan(&x.RideID, &x.DriverID, &x.Kind, &x.Status, &x.Amount, &x.Currency, &x.DeclineReason, &x.Attempts, &x.LastError)
+			err := row.Scan(&x.RideID, &x.DriverID, &x.Kind, &x.Status, &x.Amount, &x.Currency, &x.DeclineReason, &x.Attempts, &x.LastError, &x.Refunded, &x.RefundPending, &x.RefundFailure)
 			return x, err
 		})
 	if err != nil {

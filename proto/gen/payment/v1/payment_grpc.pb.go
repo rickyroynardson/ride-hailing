@@ -24,6 +24,7 @@ const (
 	PaymentService_RetryCharge_FullMethodName      = "/payment.v1.PaymentService/RetryCharge"
 	PaymentService_SetPaymentMethod_FullMethodName = "/payment.v1.PaymentService/SetPaymentMethod"
 	PaymentService_GetEarnings_FullMethodName      = "/payment.v1.PaymentService/GetEarnings"
+	PaymentService_RefundCharge_FullMethodName     = "/payment.v1.PaymentService/RefundCharge"
 )
 
 // PaymentServiceClient is the client API for PaymentService service.
@@ -35,6 +36,7 @@ type PaymentServiceClient interface {
 	RetryCharge(ctx context.Context, in *RetryChargeRequest, opts ...grpc.CallOption) (*RetryChargeResponse, error)
 	SetPaymentMethod(ctx context.Context, in *SetPaymentMethodRequest, opts ...grpc.CallOption) (*SetPaymentMethodResponse, error)
 	GetEarnings(ctx context.Context, in *GetEarningsRequest, opts ...grpc.CallOption) (*GetEarningsResponse, error)
+	RefundCharge(ctx context.Context, in *RefundChargeRequest, opts ...grpc.CallOption) (*RefundChargeResponse, error)
 }
 
 type paymentServiceClient struct {
@@ -95,6 +97,16 @@ func (c *paymentServiceClient) GetEarnings(ctx context.Context, in *GetEarningsR
 	return out, nil
 }
 
+func (c *paymentServiceClient) RefundCharge(ctx context.Context, in *RefundChargeRequest, opts ...grpc.CallOption) (*RefundChargeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RefundChargeResponse)
+	err := c.cc.Invoke(ctx, PaymentService_RefundCharge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PaymentServiceServer is the server API for PaymentService service.
 // All implementations must embed UnimplementedPaymentServiceServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type PaymentServiceServer interface {
 	RetryCharge(context.Context, *RetryChargeRequest) (*RetryChargeResponse, error)
 	SetPaymentMethod(context.Context, *SetPaymentMethodRequest) (*SetPaymentMethodResponse, error)
 	GetEarnings(context.Context, *GetEarningsRequest) (*GetEarningsResponse, error)
+	RefundCharge(context.Context, *RefundChargeRequest) (*RefundChargeResponse, error)
 	mustEmbedUnimplementedPaymentServiceServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedPaymentServiceServer) SetPaymentMethod(context.Context, *SetP
 }
 func (UnimplementedPaymentServiceServer) GetEarnings(context.Context, *GetEarningsRequest) (*GetEarningsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEarnings not implemented")
+}
+func (UnimplementedPaymentServiceServer) RefundCharge(context.Context, *RefundChargeRequest) (*RefundChargeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RefundCharge not implemented")
 }
 func (UnimplementedPaymentServiceServer) mustEmbedUnimplementedPaymentServiceServer() {}
 func (UnimplementedPaymentServiceServer) testEmbeddedByValue()                        {}
@@ -240,6 +256,24 @@ func _PaymentService_GetEarnings_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PaymentService_RefundCharge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefundChargeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).RefundCharge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_RefundCharge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).RefundCharge(ctx, req.(*RefundChargeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PaymentService_ServiceDesc is the grpc.ServiceDesc for PaymentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var PaymentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEarnings",
 			Handler:    _PaymentService_GetEarnings_Handler,
+		},
+		{
+			MethodName: "RefundCharge",
+			Handler:    _PaymentService_RefundCharge_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

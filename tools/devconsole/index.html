@@ -126,7 +126,7 @@ const short = id => id ? id.slice(0, 8) : '—';
 const nameOf = id => (state.actors.find(a => a.id === id) || {}).name || short(id);
 const ago = t => { const s = Math.max(0, Math.round((state.now - t) / 1000)); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`; };
 const STATUS_PILL = { requested: 'info', accepted: 'ok', in_progress: 'ok', completed: '', cancelled: 'bad', pending: 'info', declined: 'warn', expired: 'warn', matching: 'info', matched: 'ok', no_driver: 'bad' };
-const CARDS = [['', 'default'], ['tok_ok', 'tok_ok'], ['tok_declined', 'tok_declined'], ['tok_lost_response', 'tok_lost_response']];
+const CARDS = [['', 'default'], ['tok_ok', 'tok_ok'], ['tok_declined', 'tok_declined'], ['tok_lost_response', 'tok_lost_response'], ['tok_refund_refused', 'tok_refund_refused'], ['tok_refund_lost', 'tok_refund_lost']];
 const codeClass = c => c === 'OK' ? 'ok' : ['Internal', 'Unavailable', 'Unknown', 'DeadlineExceeded', 'DataLoss'].includes(c) ? 'bad' : 'warn';
 const outcome = o => (o || '').replace('UPDATE_OUTCOME_', '').toLowerCase();
 
@@ -178,11 +178,17 @@ async function estimateFare(id) {
 }
 async function getCharge(id, rideId) { await api('POST', `/api/actors/${id}/charges/${rideId}`); ui.tab = 'calls'; await poll(); }
 async function getEarnings(id) { await api('POST', `/api/actors/${id}/earnings`); ui.tab = 'calls'; await poll(); }
+async function refund(rideId, left) {
+  const input = prompt(`Refund how much? Up to Rp ${left.toLocaleString()} is left.`, left);
+  if (!input) return;
+  await api('POST', `/api/rides/${rideId}/refund`, { amount: Number(input), key: crypto.randomUUID(), reason: 'devconsole' });
+  ui.tab = 'rides'; await poll();
+}
 async function retryCharge(id, rideId) { await api('POST', `/api/actors/${id}/rides/${rideId}/retry-charge`); await poll(); }
 async function removeActor(id) { await api('POST', `/api/actors/${id}/remove`); if (ui.selected === id) ui.selected = null; await poll(); }
 async function clearLog() { await api('POST', '/api/calls/clear'); ui.expanded.clear(); await poll(); }
 async function resetAll() {
-  if (!confirm('Reset all dev data?\n\nDeletes every ride, outbox message, offer, match request, charge, ledger entry and driver location, and the users this console created. Users you registered yourself are kept.')) return;
+  if (!confirm('Reset all dev data?\n\nDeletes every ride, outbox message, offer, match request, charge, refund, ledger entry and driver location, and the users this console created. Users you registered yourself are kept.')) return;
   const removed = await api('POST', '/api/reset');
   ui.selected = null; ui.draft = {}; ui.expanded.clear();
   toast(`Reset: ${Object.entries(removed).map(([k, n]) => `${n} ${k}`).join(', ')}`);
@@ -332,8 +338,13 @@ function renderPanel() {
       const c = charges[r.id];
       const fare = r.fare ? `Rp ${r.fare.toLocaleString()}` : '—';
       if (!c) return fare;
+      const left = c.amount - c.refunded - c.refundPending;
       return `${fare}<div><span class="pill ${CHARGE_PILL[c.status] || ''}">${esc(c.status)}</span></div>
-        <div style="color:var(--muted)">${esc(c.kind.replace('_', ' '))} · Rp ${c.amount.toLocaleString()} · ${c.attempts} attempt${c.attempts === 1 ? '' : 's'}${c.declineReason ? ` · ${esc(c.declineReason)}` : ''}${c.lastError ? ` · ${esc(c.lastError)}` : ''}</div>`;
+        <div style="color:var(--muted)">${esc(c.kind.replace('_', ' '))} · Rp ${c.amount.toLocaleString()} · ${c.attempts} attempt${c.attempts === 1 ? '' : 's'}${c.declineReason ? ` · ${esc(c.declineReason)}` : ''}${c.lastError ? ` · ${esc(c.lastError)}` : ''}</div>
+        ${c.refunded ? `<div style="color:var(--muted)">refunded Rp ${c.refunded.toLocaleString()}</div>` : ''}
+        ${c.refundPending ? `<div><span class="pill info">refund pending</span> Rp ${c.refundPending.toLocaleString()}</div>` : ''}
+        ${c.refundFailure ? `<div style="color:var(--bad)">refund failed: ${esc(c.refundFailure)}</div>` : ''}
+        ${c.status === 'captured' && left > 0 ? `<button onclick="refund('${r.id}', ${left})" title="Calls RefundCharge with a service token, standing in for a support tool">Refund</button>` : ''}`;
     };
     panel.innerHTML = err('rides') + err('match_requests') + err('charges') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th><th>Payment</th></tr>${state.rides.map(r => `<tr>
       <td class="mono">${short(r.id)}<div style="color:var(--muted)">${ago(Date.parse(r.createdAt))}</div></td>

@@ -12,6 +12,8 @@ func errorCodes(err error) (codes.Code, bool) {
 	switch {
 	case errors.Is(err, payment.ErrInvalidInput):
 		return codes.InvalidArgument, true
+	case errors.Is(err, payment.ErrNotRefundable), errors.Is(err, payment.ErrRefundTooLarge), errors.Is(err, payment.ErrKeyReused):
+		return codes.FailedPrecondition, true
 	case errors.Is(err, payment.ErrChargeNotFound):
 		return codes.NotFound, true
 	}

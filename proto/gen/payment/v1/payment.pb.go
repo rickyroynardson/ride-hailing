@@ -122,6 +122,58 @@ func (ChargeStatus) EnumDescriptor() ([]byte, []int) {
 	return file_payment_v1_payment_proto_rawDescGZIP(), []int{1}
 }
 
+type RefundStatus int32
+
+const (
+	RefundStatus_REFUND_STATUS_UNSPECIFIED RefundStatus = 0
+	RefundStatus_REFUND_STATUS_PENDING     RefundStatus = 1
+	RefundStatus_REFUND_STATUS_SUCCEEDED   RefundStatus = 2
+	RefundStatus_REFUND_STATUS_FAILED      RefundStatus = 3
+)
+
+// Enum value maps for RefundStatus.
+var (
+	RefundStatus_name = map[int32]string{
+		0: "REFUND_STATUS_UNSPECIFIED",
+		1: "REFUND_STATUS_PENDING",
+		2: "REFUND_STATUS_SUCCEEDED",
+		3: "REFUND_STATUS_FAILED",
+	}
+	RefundStatus_value = map[string]int32{
+		"REFUND_STATUS_UNSPECIFIED": 0,
+		"REFUND_STATUS_PENDING":     1,
+		"REFUND_STATUS_SUCCEEDED":   2,
+		"REFUND_STATUS_FAILED":      3,
+	}
+)
+
+func (x RefundStatus) Enum() *RefundStatus {
+	p := new(RefundStatus)
+	*p = x
+	return p
+}
+
+func (x RefundStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RefundStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_payment_v1_payment_proto_enumTypes[2].Descriptor()
+}
+
+func (RefundStatus) Type() protoreflect.EnumType {
+	return &file_payment_v1_payment_proto_enumTypes[2]
+}
+
+func (x RefundStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RefundStatus.Descriptor instead.
+func (RefundStatus) EnumDescriptor() ([]byte, []int) {
+	return file_payment_v1_payment_proto_rawDescGZIP(), []int{2}
+}
+
 // An amount in the currency's smallest unit used here: whole rupiah for IDR.
 type Money struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -387,8 +439,11 @@ type Charge struct {
 	Amount   *Money                 `protobuf:"bytes,5,opt,name=amount,proto3" json:"amount,omitempty"`
 	// Why the provider refused; empty unless the status is failed.
 	DeclineReason string `protobuf:"bytes,6,opt,name=decline_reason,json=declineReason,proto3" json:"decline_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// What has actually gone back to the rider, in the charge's currency.
+	RefundedAmount int64     `protobuf:"varint,7,opt,name=refunded_amount,json=refundedAmount,proto3" json:"refunded_amount,omitempty"`
+	Refunds        []*Refund `protobuf:"bytes,8,rep,name=refunds,proto3" json:"refunds,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Charge) Reset() {
@@ -461,6 +516,20 @@ func (x *Charge) GetDeclineReason() string {
 		return x.DeclineReason
 	}
 	return ""
+}
+
+func (x *Charge) GetRefundedAmount() int64 {
+	if x != nil {
+		return x.RefundedAmount
+	}
+	return 0
+}
+
+func (x *Charge) GetRefunds() []*Refund {
+	if x != nil {
+		return x.Refunds
+	}
+	return nil
 }
 
 // The rider tries a declined charge again, usually after SetPaymentMethod. Idempotent: a pending or captured charge
@@ -545,8 +614,8 @@ func (*RetryChargeResponse) Descriptor() ([]byte, []int) {
 	return file_payment_v1_payment_proto_rawDescGZIP(), []int{7}
 }
 
-// Sets the caller's card, as the opaque token a provider issues. The fake provider's tokens are tok_ok, tok_declined
-// and tok_lost_response.
+// Sets the caller's card, as the opaque token a provider issues. The fake provider's tokens are tok_ok, tok_declined,
+// tok_lost_response, tok_refund_refused and tok_refund_lost.
 type SetPaymentMethodRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
@@ -708,6 +777,201 @@ func (x *GetEarningsResponse) GetBalances() []*Money {
 	return nil
 }
 
+type Refund struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	RefundId string                 `protobuf:"bytes,1,opt,name=refund_id,json=refundId,proto3" json:"refund_id,omitempty"`
+	Amount   *Money                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Status   RefundStatus           `protobuf:"varint,3,opt,name=status,proto3,enum=payment.v1.RefundStatus" json:"status,omitempty"`
+	Reason   string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Why the provider refused; empty unless the status is failed.
+	FailureReason string `protobuf:"bytes,5,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Refund) Reset() {
+	*x = Refund{}
+	mi := &file_payment_v1_payment_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Refund) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Refund) ProtoMessage() {}
+
+func (x *Refund) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_v1_payment_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Refund.ProtoReflect.Descriptor instead.
+func (*Refund) Descriptor() ([]byte, []int) {
+	return file_payment_v1_payment_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *Refund) GetRefundId() string {
+	if x != nil {
+		return x.RefundId
+	}
+	return ""
+}
+
+func (x *Refund) GetAmount() *Money {
+	if x != nil {
+		return x.Amount
+	}
+	return nil
+}
+
+func (x *Refund) GetStatus() RefundStatus {
+	if x != nil {
+		return x.Status
+	}
+	return RefundStatus_REFUND_STATUS_UNSPECIFIED
+}
+
+func (x *Refund) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *Refund) GetFailureReason() string {
+	if x != nil {
+		return x.FailureReason
+	}
+	return ""
+}
+
+// Returns part or all of a captured charge. Returns once the refund is saved; the provider is called in the
+// background. Idempotent per idempotency_key: a repeat returns the first refund. A pending refund counts against what
+// is left to refund; a failed one doesn't.
+// NOT_FOUND: no charge for this ride. FAILED_PRECONDITION: the charge isn't captured, the amount is more than what is
+// left, or the key was already used for a different refund.
+type RefundChargeRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	RideId string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	// In the charge's currency.
+	Amount         int64  `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	IdempotencyKey string `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	Reason         string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RefundChargeRequest) Reset() {
+	*x = RefundChargeRequest{}
+	mi := &file_payment_v1_payment_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RefundChargeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RefundChargeRequest) ProtoMessage() {}
+
+func (x *RefundChargeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_v1_payment_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RefundChargeRequest.ProtoReflect.Descriptor instead.
+func (*RefundChargeRequest) Descriptor() ([]byte, []int) {
+	return file_payment_v1_payment_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RefundChargeRequest) GetRideId() string {
+	if x != nil {
+		return x.RideId
+	}
+	return ""
+}
+
+func (x *RefundChargeRequest) GetAmount() int64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *RefundChargeRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *RefundChargeRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type RefundChargeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Refund        *Refund                `protobuf:"bytes,1,opt,name=refund,proto3" json:"refund,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RefundChargeResponse) Reset() {
+	*x = RefundChargeResponse{}
+	mi := &file_payment_v1_payment_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RefundChargeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RefundChargeResponse) ProtoMessage() {}
+
+func (x *RefundChargeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_v1_payment_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RefundChargeResponse.ProtoReflect.Descriptor instead.
+func (*RefundChargeResponse) Descriptor() ([]byte, []int) {
+	return file_payment_v1_payment_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RefundChargeResponse) GetRefund() *Refund {
+	if x != nil {
+		return x.Refund
+	}
+	return nil
+}
+
 var File_payment_v1_payment_proto protoreflect.FileDescriptor
 
 const file_payment_v1_payment_proto_rawDesc = "" +
@@ -727,14 +991,16 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"\x10GetChargeRequest\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\"?\n" +
 	"\x11GetChargeResponse\x12*\n" +
-	"\x06charge\x18\x01 \x01(\v2\x12.payment.v1.ChargeR\x06charge\"\xee\x01\n" +
+	"\x06charge\x18\x01 \x01(\v2\x12.payment.v1.ChargeR\x06charge\"\xc5\x02\n" +
 	"\x06Charge\x12\x1b\n" +
 	"\tcharge_id\x18\x01 \x01(\tR\bchargeId\x12\x17\n" +
 	"\aride_id\x18\x02 \x01(\tR\x06rideId\x12*\n" +
 	"\x04kind\x18\x03 \x01(\x0e2\x16.payment.v1.ChargeKindR\x04kind\x120\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x18.payment.v1.ChargeStatusR\x06status\x12)\n" +
 	"\x06amount\x18\x05 \x01(\v2\x11.payment.v1.MoneyR\x06amount\x12%\n" +
-	"\x0edecline_reason\x18\x06 \x01(\tR\rdeclineReason\"-\n" +
+	"\x0edecline_reason\x18\x06 \x01(\tR\rdeclineReason\x12'\n" +
+	"\x0frefunded_amount\x18\a \x01(\x03R\x0erefundedAmount\x12,\n" +
+	"\arefunds\x18\b \x03(\v2\x12.payment.v1.RefundR\arefunds\"-\n" +
 	"\x12RetryChargeRequest\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x15\n" +
 	"\x13RetryChargeResponse\"/\n" +
@@ -743,7 +1009,20 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"\x18SetPaymentMethodResponse\"\x14\n" +
 	"\x12GetEarningsRequest\"D\n" +
 	"\x13GetEarningsResponse\x12-\n" +
-	"\bbalances\x18\x01 \x03(\v2\x11.payment.v1.MoneyR\bbalances*a\n" +
+	"\bbalances\x18\x01 \x03(\v2\x11.payment.v1.MoneyR\bbalances\"\xc1\x01\n" +
+	"\x06Refund\x12\x1b\n" +
+	"\trefund_id\x18\x01 \x01(\tR\brefundId\x12)\n" +
+	"\x06amount\x18\x02 \x01(\v2\x11.payment.v1.MoneyR\x06amount\x120\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x18.payment.v1.RefundStatusR\x06status\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12%\n" +
+	"\x0efailure_reason\x18\x05 \x01(\tR\rfailureReason\"\x87\x01\n" +
+	"\x13RefundChargeRequest\x12\x17\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"B\n" +
+	"\x14RefundChargeResponse\x12*\n" +
+	"\x06refund\x18\x01 \x01(\v2\x12.payment.v1.RefundR\x06refund*a\n" +
 	"\n" +
 	"ChargeKind\x12\x1b\n" +
 	"\x17CHARGE_KIND_UNSPECIFIED\x10\x00\x12\x14\n" +
@@ -753,14 +1032,20 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"\x19CHARGE_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15CHARGE_STATUS_PENDING\x10\x01\x12\x1a\n" +
 	"\x16CHARGE_STATUS_CAPTURED\x10\x02\x12\x18\n" +
-	"\x14CHARGE_STATUS_FAILED\x10\x032\xb0\x03\n" +
+	"\x14CHARGE_STATUS_FAILED\x10\x03*\x7f\n" +
+	"\fRefundStatus\x12\x1d\n" +
+	"\x19REFUND_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15REFUND_STATUS_PENDING\x10\x01\x12\x1b\n" +
+	"\x17REFUND_STATUS_SUCCEEDED\x10\x02\x12\x18\n" +
+	"\x14REFUND_STATUS_FAILED\x10\x032\x85\x04\n" +
 	"\x0ePaymentService\x12M\n" +
 	"\n" +
 	"ChargeRide\x12\x1d.payment.v1.ChargeRideRequest\x1a\x1e.payment.v1.ChargeRideResponse\"\x00\x12J\n" +
 	"\tGetCharge\x12\x1c.payment.v1.GetChargeRequest\x1a\x1d.payment.v1.GetChargeResponse\"\x00\x12P\n" +
 	"\vRetryCharge\x12\x1e.payment.v1.RetryChargeRequest\x1a\x1f.payment.v1.RetryChargeResponse\"\x00\x12_\n" +
 	"\x10SetPaymentMethod\x12#.payment.v1.SetPaymentMethodRequest\x1a$.payment.v1.SetPaymentMethodResponse\"\x00\x12P\n" +
-	"\vGetEarnings\x12\x1e.payment.v1.GetEarningsRequest\x1a\x1f.payment.v1.GetEarningsResponse\"\x00B\xaf\x01\n" +
+	"\vGetEarnings\x12\x1e.payment.v1.GetEarningsRequest\x1a\x1f.payment.v1.GetEarningsResponse\"\x00\x12S\n" +
+	"\fRefundCharge\x12\x1f.payment.v1.RefundChargeRequest\x1a .payment.v1.RefundChargeResponse\"\x00B\xaf\x01\n" +
 	"\x0ecom.payment.v1B\fPaymentProtoP\x01ZFgithub.com/rickyroynardson/ride-hailing/proto/gen/payment/v1;paymentv1\xa2\x02\x03PXX\xaa\x02\n" +
 	"Payment.V1\xca\x02\n" +
 	"Payment\\V1\xe2\x02\x16Payment\\V1\\GPBMetadata\xea\x02\vPayment::V1b\x06proto3"
@@ -777,47 +1062,57 @@ func file_payment_v1_payment_proto_rawDescGZIP() []byte {
 	return file_payment_v1_payment_proto_rawDescData
 }
 
-var file_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_payment_v1_payment_proto_goTypes = []any{
 	(ChargeKind)(0),                  // 0: payment.v1.ChargeKind
 	(ChargeStatus)(0),                // 1: payment.v1.ChargeStatus
-	(*Money)(nil),                    // 2: payment.v1.Money
-	(*ChargeRideRequest)(nil),        // 3: payment.v1.ChargeRideRequest
-	(*ChargeRideResponse)(nil),       // 4: payment.v1.ChargeRideResponse
-	(*GetChargeRequest)(nil),         // 5: payment.v1.GetChargeRequest
-	(*GetChargeResponse)(nil),        // 6: payment.v1.GetChargeResponse
-	(*Charge)(nil),                   // 7: payment.v1.Charge
-	(*RetryChargeRequest)(nil),       // 8: payment.v1.RetryChargeRequest
-	(*RetryChargeResponse)(nil),      // 9: payment.v1.RetryChargeResponse
-	(*SetPaymentMethodRequest)(nil),  // 10: payment.v1.SetPaymentMethodRequest
-	(*SetPaymentMethodResponse)(nil), // 11: payment.v1.SetPaymentMethodResponse
-	(*GetEarningsRequest)(nil),       // 12: payment.v1.GetEarningsRequest
-	(*GetEarningsResponse)(nil),      // 13: payment.v1.GetEarningsResponse
+	(RefundStatus)(0),                // 2: payment.v1.RefundStatus
+	(*Money)(nil),                    // 3: payment.v1.Money
+	(*ChargeRideRequest)(nil),        // 4: payment.v1.ChargeRideRequest
+	(*ChargeRideResponse)(nil),       // 5: payment.v1.ChargeRideResponse
+	(*GetChargeRequest)(nil),         // 6: payment.v1.GetChargeRequest
+	(*GetChargeResponse)(nil),        // 7: payment.v1.GetChargeResponse
+	(*Charge)(nil),                   // 8: payment.v1.Charge
+	(*RetryChargeRequest)(nil),       // 9: payment.v1.RetryChargeRequest
+	(*RetryChargeResponse)(nil),      // 10: payment.v1.RetryChargeResponse
+	(*SetPaymentMethodRequest)(nil),  // 11: payment.v1.SetPaymentMethodRequest
+	(*SetPaymentMethodResponse)(nil), // 12: payment.v1.SetPaymentMethodResponse
+	(*GetEarningsRequest)(nil),       // 13: payment.v1.GetEarningsRequest
+	(*GetEarningsResponse)(nil),      // 14: payment.v1.GetEarningsResponse
+	(*Refund)(nil),                   // 15: payment.v1.Refund
+	(*RefundChargeRequest)(nil),      // 16: payment.v1.RefundChargeRequest
+	(*RefundChargeResponse)(nil),     // 17: payment.v1.RefundChargeResponse
 }
 var file_payment_v1_payment_proto_depIdxs = []int32{
 	0,  // 0: payment.v1.ChargeRideRequest.kind:type_name -> payment.v1.ChargeKind
-	2,  // 1: payment.v1.ChargeRideRequest.amount:type_name -> payment.v1.Money
-	7,  // 2: payment.v1.GetChargeResponse.charge:type_name -> payment.v1.Charge
+	3,  // 1: payment.v1.ChargeRideRequest.amount:type_name -> payment.v1.Money
+	8,  // 2: payment.v1.GetChargeResponse.charge:type_name -> payment.v1.Charge
 	0,  // 3: payment.v1.Charge.kind:type_name -> payment.v1.ChargeKind
 	1,  // 4: payment.v1.Charge.status:type_name -> payment.v1.ChargeStatus
-	2,  // 5: payment.v1.Charge.amount:type_name -> payment.v1.Money
-	2,  // 6: payment.v1.GetEarningsResponse.balances:type_name -> payment.v1.Money
-	3,  // 7: payment.v1.PaymentService.ChargeRide:input_type -> payment.v1.ChargeRideRequest
-	5,  // 8: payment.v1.PaymentService.GetCharge:input_type -> payment.v1.GetChargeRequest
-	8,  // 9: payment.v1.PaymentService.RetryCharge:input_type -> payment.v1.RetryChargeRequest
-	10, // 10: payment.v1.PaymentService.SetPaymentMethod:input_type -> payment.v1.SetPaymentMethodRequest
-	12, // 11: payment.v1.PaymentService.GetEarnings:input_type -> payment.v1.GetEarningsRequest
-	4,  // 12: payment.v1.PaymentService.ChargeRide:output_type -> payment.v1.ChargeRideResponse
-	6,  // 13: payment.v1.PaymentService.GetCharge:output_type -> payment.v1.GetChargeResponse
-	9,  // 14: payment.v1.PaymentService.RetryCharge:output_type -> payment.v1.RetryChargeResponse
-	11, // 15: payment.v1.PaymentService.SetPaymentMethod:output_type -> payment.v1.SetPaymentMethodResponse
-	13, // 16: payment.v1.PaymentService.GetEarnings:output_type -> payment.v1.GetEarningsResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	3,  // 5: payment.v1.Charge.amount:type_name -> payment.v1.Money
+	15, // 6: payment.v1.Charge.refunds:type_name -> payment.v1.Refund
+	3,  // 7: payment.v1.GetEarningsResponse.balances:type_name -> payment.v1.Money
+	3,  // 8: payment.v1.Refund.amount:type_name -> payment.v1.Money
+	2,  // 9: payment.v1.Refund.status:type_name -> payment.v1.RefundStatus
+	15, // 10: payment.v1.RefundChargeResponse.refund:type_name -> payment.v1.Refund
+	4,  // 11: payment.v1.PaymentService.ChargeRide:input_type -> payment.v1.ChargeRideRequest
+	6,  // 12: payment.v1.PaymentService.GetCharge:input_type -> payment.v1.GetChargeRequest
+	9,  // 13: payment.v1.PaymentService.RetryCharge:input_type -> payment.v1.RetryChargeRequest
+	11, // 14: payment.v1.PaymentService.SetPaymentMethod:input_type -> payment.v1.SetPaymentMethodRequest
+	13, // 15: payment.v1.PaymentService.GetEarnings:input_type -> payment.v1.GetEarningsRequest
+	16, // 16: payment.v1.PaymentService.RefundCharge:input_type -> payment.v1.RefundChargeRequest
+	5,  // 17: payment.v1.PaymentService.ChargeRide:output_type -> payment.v1.ChargeRideResponse
+	7,  // 18: payment.v1.PaymentService.GetCharge:output_type -> payment.v1.GetChargeResponse
+	10, // 19: payment.v1.PaymentService.RetryCharge:output_type -> payment.v1.RetryChargeResponse
+	12, // 20: payment.v1.PaymentService.SetPaymentMethod:output_type -> payment.v1.SetPaymentMethodResponse
+	14, // 21: payment.v1.PaymentService.GetEarnings:output_type -> payment.v1.GetEarningsResponse
+	17, // 22: payment.v1.PaymentService.RefundCharge:output_type -> payment.v1.RefundChargeResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_payment_v1_payment_proto_init() }
@@ -830,8 +1125,8 @@ func file_payment_v1_payment_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_payment_v1_payment_proto_rawDesc), len(file_payment_v1_payment_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   12,
+			NumEnums:      3,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

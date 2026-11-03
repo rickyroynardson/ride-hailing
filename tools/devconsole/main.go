@@ -103,6 +103,7 @@ func main() {
 	mux.HandleFunc("POST /api/actors/{id}/earnings", c.handleGetEarnings)
 	mux.HandleFunc("POST /api/actors/{id}/rides/{ride}/{step}", c.handleTripStep)
 	mux.HandleFunc("POST /api/rides/{id}/start-matching", c.handleStartMatching)
+	mux.HandleFunc("POST /api/rides/{id}/refund", c.handleRefund)
 	mux.HandleFunc("POST /api/actors/{id}/offer", c.handleGetOffer)
 	mux.HandleFunc("POST /api/actors/{id}/offers/{offer}/{answer}", c.handleAnswerOffer)
 	mux.HandleFunc("POST /api/actors/{id}/remove", c.handleRemoveActor)

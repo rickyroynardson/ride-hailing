@@ -328,9 +328,220 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("concurrent ticks paid %d, want %d", got, many*8_000)
 	}
 
-	// The whole ledger balances, charge by charge: the invariant everything above relies on.
+	// Refunds. Only the service side may ask, and only for a captured charge.
+	setCard(provider.TokenOK)
+	refundReq := func(rideID string, amount int64, key string) *paymentv1.RefundChargeRequest {
+		return &paymentv1.RefundChargeRequest{RideId: rideID, Amount: amount, IdempotencyKey: key, Reason: "support"}
+	}
+	capture := func(amount int64) string {
+		t.Helper()
+		rideID := nextRide()
+		if _, err := client.ChargeRide(asRide, chargeReq(rideID, amount)); err != nil {
+			t.Fatal(err)
+		}
+		tick()
+		return rideID
+	}
+	chargeOf := func(rideID string) *paymentv1.Charge {
+		t.Helper()
+		res, err := client.GetCharge(rider, &paymentv1.GetChargeRequest{RideId: rideID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.GetCharge()
+	}
+	refund := func(rideID string, amount int64, key string) *paymentv1.Refund {
+		t.Helper()
+		res, err := client.RefundCharge(asRide, refundReq(rideID, amount, key))
+		if err != nil {
+			t.Fatalf("refund %s: %v", key, err)
+		}
+		return res.GetRefund()
+	}
+	accountBalance := func(account string) int64 {
+		t.Helper()
+		var n int64
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(sum(amount), 0)::bigint FROM ledger_entries WHERE account = $1`, account).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	full := capture(10_000)
+	_, err = client.RefundCharge(ctx, refundReq(full, 1, "no-token"))
+	wantCode(t, "refund without token", err, codes.Unauthenticated)
+	_, err = client.RefundCharge(rider, refundReq(full, 1, "by-rider"))
+	wantCode(t, "a rider refunding themselves", err, codes.PermissionDenied)
+	_, err = client.RefundCharge(asRide, refundReq(full, 0, "zero"))
+	wantCode(t, "zero refund", err, codes.InvalidArgument)
+	_, err = client.RefundCharge(asRide, refundReq(full, 1, ""))
+	wantCode(t, "refund without a key", err, codes.InvalidArgument)
+	_, err = client.RefundCharge(asRide, refundReq(nextRide(), 1, "no-charge"))
+	wantCode(t, "refund of no charge", err, codes.NotFound)
+	_, err = client.RefundCharge(asRide, refundReq(full, 10_001, "too-much"))
+	wantCode(t, "refund above the charge", err, codes.FailedPrecondition)
+
+	setCard(provider.TokenDeclined)
+	unpaid := capture(10_000)
+	setCard(provider.TokenOK)
+	_, err = client.RefundCharge(asRide, refundReq(unpaid, 1, "declined"))
+	wantCode(t, "refund of a declined charge", err, codes.FailedPrecondition)
+
+	// A full refund reverses the capture exactly: the driver and platform each give back their share, and the money
+	// reconciles. Repeating the request, before or after it finished, refunds once.
+	earnedBefore = earnings()
+	platformBefore, clearingBefore := accountBalance("platform_revenue"), accountBalance("provider_clearing")
+	refundedBefore := fake.Refunded()
+	first1 := refund(full, 10_000, "full-1")
+	if again := refund(full, 10_000, "full-1"); again.GetRefundId() != first1.GetRefundId() {
+		t.Fatalf("repeat made a new refund: %v vs %v", again, first1)
+	}
+	if first1.GetStatus() != paymentv1.RefundStatus_REFUND_STATUS_PENDING {
+		t.Fatalf("new refund: %v", first1)
+	}
+	tick()
+	if again := refund(full, 10_000, "full-1"); again.GetStatus() != paymentv1.RefundStatus_REFUND_STATUS_SUCCEEDED {
+		t.Fatalf("repeat after it finished: %v", again)
+	}
+	tick()
+	if got := fake.Refunded() - refundedBefore; got != 10_000 {
+		t.Fatalf("provider refunded %d, want 10000", got)
+	}
+	if got := earnings() - earnedBefore; got != -8_000 {
+		t.Fatalf("driver balance moved %d, want -8000", got)
+	}
+	if got := accountBalance("platform_revenue") - platformBefore; got != 2_000 {
+		t.Fatalf("platform moved %d, want 2000", got)
+	}
+	if got := accountBalance("provider_clearing") - clearingBefore; got != -10_000 {
+		t.Fatalf("clearing moved %d, want -10000", got)
+	}
+	if c := chargeOf(full); c.GetRefundedAmount() != 10_000 || len(c.GetRefunds()) != 1 || c.GetStatus() != paymentv1.ChargeStatus_CHARGE_STATUS_CAPTURED {
+		t.Fatalf("charge after a full refund: %+v", c)
+	}
+	_, err = client.RefundCharge(asRide, refundReq(full, 1, "full-2"))
+	wantCode(t, "refund of a fully refunded charge", err, codes.FailedPrecondition)
+
+	// The same key can't mean a different refund, on this charge or another.
+	_, err = client.RefundCharge(asRide, refundReq(full, 5_000, "full-1"))
+	wantCode(t, "key reused for another amount", err, codes.FailedPrecondition)
+	_, err = client.RefundCharge(asRide, refundReq(capture(10_000), 10_000, "full-1"))
+	wantCode(t, "key reused on another charge", err, codes.FailedPrecondition)
+
+	// Partial refunds that don't divide evenly still give back exactly the capture's shares, to the rupiah.
+	const uneven = 10_007
+	wantDriver := uneven - uneven*20/100
+	partial := capture(uneven)
+	earnedBefore = earnings()
+	for i, part := range []int64{3_333, 3_333, 3_341} {
+		refund(partial, part, "part-"+pad(i))
+		tick()
+	}
+	if got := earnings() - earnedBefore; got != int64(-wantDriver) {
+		t.Fatalf("partial refunds took %d from the driver, want %d", got, -wantDriver)
+	}
+	if got := chargeOf(partial).GetRefundedAmount(); got != uneven {
+		t.Fatalf("refunded %d of %d", got, uneven)
+	}
+
+	// Racing refunds can't together exceed the charge: of ten at 40%, two fit. And ten copies of one request are one.
+	raced := capture(10_000)
+	refundedBefore = fake.Refunded()
+	var mu sync.Mutex
+	accepted := 0
+	for i := range 10 {
+		wg.Go(func() {
+			if _, err := client.RefundCharge(asRide, refundReq(raced, 4_000, "race-"+pad(i))); err == nil {
+				mu.Lock()
+				accepted++
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if accepted != 2 {
+		t.Fatalf("%d racing refunds accepted, want 2", accepted)
+	}
+	for range 2 {
+		tick()
+	}
+	raceOne := capture(10_000)
+	for range 10 {
+		wg.Go(func() { client.RefundCharge(asRide, refundReq(raceOne, 4_000, "same-key")) })
+	}
+	wg.Wait()
+	tick()
+	if got := fake.Refunded() - refundedBefore; got != 12_000 {
+		t.Fatalf("racing refunds paid %d, want 12000", got)
+	}
+
+	// The reply to a refund is lost after the money went back: it stays pending and reserved, and the repeat with the
+	// same key pays once.
+	setCard(provider.TokenRefundLost)
+	lostRefund := capture(10_000)
+	refundedBefore = fake.Refunded()
+	earnedBefore = earnings()
+	lostR := refund(lostRefund, 10_000, "lost-refund")
+	tick()
+	if c := chargeOf(lostRefund); c.GetRefundedAmount() != 0 || c.GetRefunds()[0].GetStatus() != paymentv1.RefundStatus_REFUND_STATUS_PENDING {
+		t.Fatalf("after a lost refund reply: %+v", c)
+	}
+	_, err = client.RefundCharge(asRide, refundReq(lostRefund, 1, "while-unknown"))
+	wantCode(t, "refund while another's outcome is unknown", err, codes.FailedPrecondition)
+	if earnings() != earnedBefore {
+		t.Fatal("ledger posted before the refund's outcome was known")
+	}
+	pool.Exec(ctx, `UPDATE refunds SET next_attempt_at = now() WHERE id = $1`, lostR.GetRefundId())
+	tick()
+	if got := fake.Refunded() - refundedBefore; got != 10_000 {
+		t.Fatalf("lost reply refunded %d, want 10000", got)
+	}
+	if c := chargeOf(lostRefund); c.GetRefundedAmount() != 10_000 {
+		t.Fatalf("after the repeat: %+v", c)
+	}
+
+	// The provider refuses: nothing moved, nothing posted, and the amount is free for a new refund.
+	setCard(provider.TokenRefundRefused)
+	refused := capture(10_000)
+	earnedBefore = earnings()
+	refund(refused, 10_000, "refused-1")
+	tick()
+	if c := chargeOf(refused); c.GetRefunds()[0].GetStatus() != paymentv1.RefundStatus_REFUND_STATUS_FAILED ||
+		c.GetRefunds()[0].GetFailureReason() != "refund_refused" || c.GetRefundedAmount() != 0 {
+		t.Fatalf("refused refund: %+v", c)
+	}
+	if earnings() != earnedBefore {
+		t.Fatal("a refused refund moved the ledger")
+	}
+	refund(refused, 10_000, "refused-2")
+	setCard(provider.TokenOK)
+
+	// A driver with nothing else on their account ends at exactly zero after a full refund.
+	const newDriver = "44444444-4444-4444-4444-444444444444"
+	owed := nextRide()
+	req := chargeReq(owed, 10_000)
+	req.DriverId = newDriver
+	if _, err := client.ChargeRide(asRide, req); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	refund(owed, 10_000, "owed-1")
+	tick()
+	if got := accountBalance("driver:" + newDriver); got != 0 {
+		t.Fatalf("driver account after capture and full refund: %d, want 0", got)
+	}
+
+	// Money at the provider equals everything captured minus everything refunded, the reconciliation a finance team runs.
+	var captured, refunded int64
+	pool.QueryRow(ctx, `SELECT COALESCE(sum(amount), 0)::bigint FROM charges WHERE status = 'captured'`).Scan(&captured)
+	pool.QueryRow(ctx, `SELECT COALESCE(sum(amount), 0)::bigint FROM refunds WHERE status = 'succeeded'`).Scan(&refunded)
+	if got := accountBalance("provider_clearing"); got != captured-refunded {
+		t.Fatalf("clearing %d, want %d captured - %d refunded", got, captured, refunded)
+	}
+
+	// The whole ledger balances, posting by posting: the invariant everything above relies on.
 	var unbalanced int
-	pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT charge_id FROM ledger_entries GROUP BY charge_id HAVING sum(amount) <> 0) x`).Scan(&unbalanced)
+	pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM ledger_entries GROUP BY charge_id, refund_id HAVING sum(amount) <> 0) x`).Scan(&unbalanced)
 	if unbalanced != 0 {
 		t.Fatalf("%d charges don't balance", unbalanced)
 	}
@@ -352,6 +563,22 @@ func TestIntegration(t *testing.T) {
 	pool.QueryRow(ctx, `SELECT id FROM charges WHERE ride_id = $1`, first).Scan(&chargeID)
 	if _, err := pool.Exec(ctx, `INSERT INTO ledger_entries(charge_id, account, amount, currency) VALUES ($1, 'driver:free-money', -100, 'IDR')`, chargeID); err == nil {
 		t.Fatal("an unbalanced entry was committed")
+	}
+
+	// The refunds migration goes back and forth over real data, the one place it must step around the ledger's rules.
+	db, err := sql.Open("pgx", url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := goose.Down(db, "../../migrations"); err != nil {
+		t.Fatalf("down over real refunds: %v", err)
+	}
+	if err := goose.Up(db, "../../migrations"); err != nil {
+		t.Fatal(err)
+	}
+	if got := accountBalance("provider_clearing"); got != captured {
+		t.Fatalf("clearing after dropping refunds: %d, want %d", got, captured)
 	}
 }
 

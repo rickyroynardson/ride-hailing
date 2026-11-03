@@ -35,6 +35,12 @@ var toStatusProto = map[string]paymentv1.ChargeStatus{
 	payment.StatusFailed:   paymentv1.ChargeStatus_CHARGE_STATUS_FAILED,
 }
 
+var toRefundStatusProto = map[string]paymentv1.RefundStatus{
+	payment.RefundPending:   paymentv1.RefundStatus_REFUND_STATUS_PENDING,
+	payment.RefundSucceeded: paymentv1.RefundStatus_REFUND_STATUS_SUCCEEDED,
+	payment.RefundFailed:    paymentv1.RefundStatus_REFUND_STATUS_FAILED,
+}
+
 func (s *PaymentServer) ChargeRide(ctx context.Context, req *paymentv1.ChargeRideRequest) (*paymentv1.ChargeRideResponse, error) {
 	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
 	if err := s.service.ChargeRide(ctx, payment.ChargeInput{
@@ -57,14 +63,44 @@ func (s *PaymentServer) GetCharge(ctx context.Context, req *paymentv1.GetChargeR
 		return nil, err
 	}
 
-	return &paymentv1.GetChargeResponse{Charge: &paymentv1.Charge{
-		ChargeId:      c.ID,
-		RideId:        c.RideID,
-		Kind:          toKindProto[c.Kind],
-		Status:        toStatusProto[c.Status],
-		Amount:        toMoneyProto(c.Amount),
-		DeclineReason: c.DeclineReason,
-	}}, nil
+	res := &paymentv1.Charge{
+		ChargeId:       c.ID,
+		RideId:         c.RideID,
+		Kind:           toKindProto[c.Kind],
+		Status:         toStatusProto[c.Status],
+		Amount:         toMoneyProto(c.Amount),
+		DeclineReason:  c.DeclineReason,
+		RefundedAmount: c.RefundedAmount,
+	}
+	for _, r := range c.Refunds {
+		res.Refunds = append(res.Refunds, toRefundProto(r))
+	}
+	return &paymentv1.GetChargeResponse{Charge: res}, nil
+}
+
+func (s *PaymentServer) RefundCharge(ctx context.Context, req *paymentv1.RefundChargeRequest) (*paymentv1.RefundChargeResponse, error) {
+	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
+	r, err := s.service.RefundCharge(ctx, payment.RefundInput{
+		RideID:         req.GetRideId(),
+		Amount:         req.GetAmount(),
+		IdempotencyKey: req.GetIdempotencyKey(),
+		Reason:         req.GetReason(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &paymentv1.RefundChargeResponse{Refund: toRefundProto(r)}, nil
+}
+
+func toRefundProto(r payment.Refund) *paymentv1.Refund {
+	return &paymentv1.Refund{
+		RefundId:      r.ID,
+		Amount:        toMoneyProto(r.Amount),
+		Status:        toRefundStatusProto[r.Status],
+		Reason:        r.Reason,
+		FailureReason: r.FailureReason,
+	}
 }
 
 func (s *PaymentServer) RetryCharge(ctx context.Context, req *paymentv1.RetryChargeRequest) (*paymentv1.RetryChargeResponse, error) {

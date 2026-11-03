@@ -60,10 +60,10 @@ func (s *PaymentService) ChargeRide(ctx context.Context, in ChargeInput) error {
 	return s.repository.CreateCharge(ctx, in, telemetry.TraceParent(ctx))
 }
 
-// Tick moves charges forward; it runs every second, on every replica. It sends due charges to the provider, then tells
-// ride how finished ones ended.
+// Tick moves charges and refunds forward; it runs every second, on every replica. It sends what is due to the provider,
+// then tells ride how finished charges ended.
 func (s *PaymentService) Tick(ctx context.Context) error {
-	return errors.Join(s.processDue(ctx), s.notifyOutcomes(ctx))
+	return errors.Join(s.processDue(ctx), s.processDueRefunds(ctx), s.notifyOutcomes(ctx))
 }
 
 func (s *PaymentService) processDue(ctx context.Context) error {
@@ -159,7 +159,20 @@ func (s *PaymentService) GetCharge(ctx context.Context, rideID, userID string) (
 	if !uuidPattern.MatchString(rideID) {
 		return Charge{}, fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
 	}
-	return s.repository.GetCharge(ctx, rideID, userID)
+	c, err := s.repository.GetCharge(ctx, rideID, userID)
+	if err != nil {
+		return Charge{}, err
+	}
+	c.Refunds, err = s.repository.Refunds(ctx, c.ID)
+	if err != nil {
+		return Charge{}, err
+	}
+	for _, r := range c.Refunds {
+		if r.Status == RefundSucceeded {
+			c.RefundedAmount += r.Amount.Amount
+		}
+	}
+	return c, nil
 }
 
 func (s *PaymentService) RetryCharge(ctx context.Context, rideID, riderID string) error {

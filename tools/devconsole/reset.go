@@ -101,6 +101,34 @@ func (c *console) handleCancelRide(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleRefund calls RefundCharge with a service token, standing in for a support tool. The page sends a fresh key per
+// click, or a repeated one to show that a retry refunds once.
+func (c *console) handleRefund(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Amount int64  `json:"amount"`
+		Key    string `json:"key"`
+		Reason string `json:"reason"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {amount, key, reason}"})
+		return
+	}
+	tok, err := c.serviceToken()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	req := &paymentv1.RefundChargeRequest{RideId: r.PathValue("id"), Amount: body.Amount, IdempotencyKey: body.Key, Reason: body.Reason}
+	res, err := c.call(systemActor, "payment.v1.PaymentService/RefundCharge", tok, false, req, func(ctx context.Context) (proto.Message, error) {
+		return c.payment.RefundCharge(ctx, req)
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, marshal(res))
+}
+
 // handleEstimateFare prices the rider's drafted trip, the way a rider app does before they book.
 func (c *console) handleEstimateFare(w http.ResponseWriter, r *http.Request) {
 	a, err := c.actor(r.PathValue("id"))
@@ -320,7 +348,7 @@ func (c *console) handleClearCalls(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleReset wipes local dev data so testing starts clean: every ride (and ride's outbox), offer, match request,
-// charge, ledger entry and driver location, plus the users the console created (their refresh tokens and driver profiles go with them by
+// charge, refund, ledger entry and driver location, plus the users the console created (their refresh tokens and driver profiles go with them by
 // cascade). Users you registered yourself are kept.
 func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
@@ -351,7 +379,7 @@ func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 		{"rides", exec(ctx, c.ridesDB.Exec, `DELETE FROM rides`)},
 		{"outbox", exec(ctx, c.ridesDB.Exec, `DELETE FROM outbox`)},
 		// TRUNCATE, because the ledger refuses deletes; that is the point of it outside a dev reset.
-		{"payments", exec(ctx, c.paymentsDB.Exec, `TRUNCATE ledger_entries, charges, payment_methods`)},
+		{"payments", exec(ctx, c.paymentsDB.Exec, `TRUNCATE ledger_entries, refunds, charges, payment_methods`)},
 		{"consoleUsers", exec(ctx, c.usersDB.Exec, `DELETE FROM users WHERE email LIKE 'dev-%@devconsole.local'`)},
 		{"redisKeys", func() (int64, error) {
 			keys := []string{"drivers:geo", "drivers:last_seen"}
