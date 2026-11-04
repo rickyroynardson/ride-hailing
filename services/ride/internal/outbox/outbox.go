@@ -119,6 +119,11 @@ var (
 	failedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ride_outbox_failed_total", Help: "Outbox delivery attempts that failed, by kind.",
 	}, []string{"kind"})
+	// deliveryLag is the time from the change committing to the receiver confirming its message: what the outbox costs.
+	deliveryLag = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "ride_outbox_delivery_lag_seconds", Help: "Time from a message being queued to its delivery, by kind.",
+		Buckets: []float64{.01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60, 300},
+	}, []string{"kind"})
 	deadTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ride_outbox_dead_total", Help: "Outbox messages given up on after a permanent error, by kind.",
 	}, []string{"kind"})
@@ -161,6 +166,7 @@ type message struct {
 	payload     []byte
 	traceParent string
 	attempts    int
+	createdAt   time.Time
 }
 
 // Run delivers one batch of due messages, oldest first. It returns only database errors: a failed delivery backs off
@@ -199,14 +205,14 @@ func (r *Relay) claim(ctx context.Context) ([]message, error) {
 		)
 		UPDATE outbox SET next_attempt_at = now() + make_interval(secs => $2)
 		FROM due WHERE outbox.id = due.id
-		RETURNING outbox.id, outbox.kind, outbox.payload, COALESCE(outbox.trace_parent, ''), outbox.attempts`,
+		RETURNING outbox.id, outbox.kind, outbox.payload, COALESCE(outbox.trace_parent, ''), outbox.attempts, outbox.created_at`,
 		batchSize, claimLease.Seconds())
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (message, error) {
 		var m message
-		err := row.Scan(&m.id, &m.kind, &m.payload, &m.traceParent, &m.attempts)
+		err := row.Scan(&m.id, &m.kind, &m.payload, &m.traceParent, &m.attempts, &m.createdAt)
 		return m, err
 	})
 }
@@ -223,6 +229,7 @@ func (r *Relay) deliver(ctx context.Context, m message) error {
 	err := r.send(msgCtx, m.kind, m.payload)
 	if err == nil {
 		sentTotal.WithLabelValues(m.kind).Inc()
+		deliveryLag.WithLabelValues(m.kind).Observe(time.Since(m.createdAt).Seconds())
 		_, uerr := r.db.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, sent_at = now(), last_error = NULL WHERE id = $1`, m.id)
 		end(uerr)
 		return uerr

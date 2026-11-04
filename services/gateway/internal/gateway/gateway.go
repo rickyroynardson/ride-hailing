@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
@@ -80,9 +81,23 @@ func New(lg *zap.Logger, b Backends, limiter *Limiter, opts Options) http.Handle
 	h = withBodyLimit(h)
 	h = withCORS(opts.CORSOrigins)(h)
 	// A server span per request; the gRPC client spans below it carry the trace into the services.
-	return otelhttp.NewHandler(h, "gateway", otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+	h = otelhttp.NewHandler(h, "gateway", otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 		return r.Method + " " + r.URL.Path
 	}))
+	return untracedHeartbeats(h)
+}
+
+// untracedHeartbeats keeps driver location updates out of tracing, here and in the location service. Every online
+// driver sends one every few seconds, so they would be most traces by far and bury the rest; their latency is still
+// measured, in gateway_request_duration_seconds.
+func untracedHeartbeats(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/v1/driver/location" {
+			r.Header.Del("Traceparent") // a client can't opt back in
+			r = r.WithContext(telemetry.Untraced(r.Context()))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // isStream reports whether the route is a server stream, which must not get a deadline.

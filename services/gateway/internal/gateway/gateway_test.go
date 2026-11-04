@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
@@ -24,6 +25,10 @@ import (
 	"github.com/rickyroynardson/ride-hailing/services/gateway/internal/gateway"
 	"github.com/testcontainers/testcontainers-go"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/genproto/googleapis/api/annotations"
@@ -185,6 +190,22 @@ func TestGateway(t *testing.T) {
 		t.Fatal("closing the HTTP stream didn't end the gRPC stream")
 	}
 
+	// Heartbeats aren't traced: the location service gets them unsampled, while other calls carry a sampled trace.
+	otel.SetTracerProvider(sdktrace.NewTracerProvider())
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+	traced := httptest.NewServer(gateway.New(zap.NewNop(), be.conns, deadLimiter(), gateway.Options{Limits: gateway.Limits{Auth: 1000, User: 1000, Anon: 1000}}))
+	t.Cleanup(traced.Close)
+	do(t, traced, "PUT", "/v1/driver/location", `{"location":{"lat":1,"lng":1}}`, "Authorization", "Bearer d",
+		"Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+	if tp := be.location.lastTraceparent(); !strings.HasSuffix(tp, "-00") {
+		t.Fatalf("heartbeat reached location with traceparent %q, want unsampled", tp)
+	}
+	do(t, traced, "POST", "/v1/fares:estimate", `{}`, "Authorization", "Bearer r")
+	if tp := be.ride.lastTraceparent(); !strings.HasSuffix(tp, "-01") {
+		t.Fatalf("estimate reached ride with traceparent %q, want sampled", tp)
+	}
+
 	// Bodies are bounded.
 	res, _ = do(t, api, "POST", "/v1/auth/login", `{"email":"`+strings.Repeat("a", 100<<10)+`"}`)
 	if res.StatusCode != http.StatusRequestEntityTooLarge {
@@ -305,19 +326,21 @@ func deadLimiter() *gateway.Limiter {
 }
 
 type backends struct {
-	conns gateway.Backends
-	ride  *fakeRide
+	conns    gateway.Backends
+	ride     *fakeRide
+	location *fakeLocation
 }
 
 // startBackends serves fakes of every service on one in-memory gRPC server.
 func startBackends(t *testing.T) backends {
 	t.Helper()
 	ride := &fakeRide{release: make(chan struct{}, 1), watchEnded: make(chan struct{}, 1)}
+	location := &fakeLocation{}
 	gs := grpc.NewServer()
 	userv1.RegisterAuthServiceServer(gs, fakeAuth{})
 	userv1.RegisterUserServiceServer(gs, userv1.UnimplementedUserServiceServer{})
 	ridev1.RegisterRideServiceServer(gs, ride)
-	locationv1.RegisterLocationServiceServer(gs, locationv1.UnimplementedLocationServiceServer{})
+	locationv1.RegisterLocationServiceServer(gs, location)
 	matchingv1.RegisterMatchingServiceServer(gs, matchingv1.UnimplementedMatchingServiceServer{})
 	paymentv1.RegisterPaymentServiceServer(gs, paymentv1.UnimplementedPaymentServiceServer{})
 	lis := bufconn.Listen(1 << 20)
@@ -327,12 +350,13 @@ func startBackends(t *testing.T) backends {
 	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpcserver.ClientTracing(), // as cmd/main.go dials, so the trace context reaches the fakes
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	return backends{conns: gateway.Backends{User: conn, Ride: conn, Location: conn, Matching: conn, Payment: conn}, ride: ride}
+	return backends{conns: gateway.Backends{User: conn, Ride: conn, Location: conn, Matching: conn, Payment: conn}, ride: ride, location: location}
 }
 
 type fakeAuth struct {
@@ -346,6 +370,7 @@ func (fakeAuth) Login(context.Context, *userv1.LoginRequest) (*userv1.LoginRespo
 type fakeRide struct {
 	ridev1.UnimplementedRideServiceServer
 	mu         sync.Mutex
+	tp         string
 	md         metadata.MD
 	create     *ridev1.CreateRideRequest
 	assigned   int
@@ -353,7 +378,44 @@ type fakeRide struct {
 	watchEnded chan struct{}
 }
 
-func (f *fakeRide) EstimateFare(context.Context, *ridev1.EstimateFareRequest) (*ridev1.EstimateFareResponse, error) {
+// traceparentOf is the trace context a call arrived with.
+func traceparentOf(ctx context.Context) string {
+	md, _ := metadata.FromIncomingContext(ctx)
+	if v := md.Get("traceparent"); len(v) > 0 {
+		return v[0]
+	}
+	return ""
+}
+
+type fakeLocation struct {
+	locationv1.UnimplementedLocationServiceServer
+	mu sync.Mutex
+	tp string
+}
+
+func (f *fakeLocation) UpdateDriverLocation(ctx context.Context, _ *locationv1.UpdateDriverLocationRequest) (*locationv1.UpdateDriverLocationResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tp = traceparentOf(ctx)
+	return &locationv1.UpdateDriverLocationResponse{}, nil
+}
+
+func (f *fakeLocation) lastTraceparent() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tp
+}
+
+func (f *fakeRide) lastTraceparent() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tp
+}
+
+func (f *fakeRide) EstimateFare(ctx context.Context, _ *ridev1.EstimateFareRequest) (*ridev1.EstimateFareResponse, error) {
+	f.mu.Lock()
+	f.tp = traceparentOf(ctx)
+	f.mu.Unlock()
 	return &ridev1.EstimateFareResponse{Fare: &ridev1.Money{Amount: 12_000, Currency: "IDR"}}, nil
 }
 
