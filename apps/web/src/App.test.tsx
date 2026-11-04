@@ -31,6 +31,7 @@ it('takes a rider through estimate, booking, the live trip and captured payment 
     switch (path) {
       case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
       case '/v1/me': return json(profile)
+      case '/v1/rides/current': return json({ ride: null })
       case '/v1/fares:estimate': return json({ fare: price })
       case '/v1/rides': return json({ rideId: 'r1', fare: price })
       case '/v1/rides/r1:watch': return streaming(path, { ride: ride('RIDE_STATUS_REQUESTED') })
@@ -61,6 +62,7 @@ it('uses the driver offer stream, accepts, starts and completes a ride', async (
       case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
       case '/v1/auth/refresh': return json({ ...profile, tokens: tokens() })
       case '/v1/me': return json(profile)
+      case '/v1/rides/current': return json({ ride: null })
       case '/v1/driver/earnings': return json({ balances: [] })
       case '/v1/driver/location': return json({ outcome: 'UPDATE_OUTCOME_STORED' })
       case '/v1/driver/offer:watch': return streaming(path, { offer: { offerId: 'o1', rideId: 'r1', pickup: { lat: -6.2, lng: 106.8 }, expiresAt: '2099-01-01T00:00:00Z' } })
@@ -88,7 +90,7 @@ it('uses the driver offer stream, accepts, starts and completes a ride', async (
 
 it('keeps driver approval outside the app', async () => {
   profile.driverProfile = { status: 'pending' }
-  vi.stubGlobal('fetch', vi.fn(async (path: string) => path === '/v1/auth/login' ? json({ ...profile, tokens: tokens() }) : json(profile)))
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => path === '/v1/auth/login' ? json({ ...profile, tokens: tokens() }) : path === '/v1/rides/current' ? json({ ride: null }) : json(profile)))
   render(<App />)
   await signIn()
   fireEvent.click(screen.getByRole('button', { name: 'I’m driving' }))
@@ -103,6 +105,7 @@ it('keeps an unpaid ride available until the rider changes the card and retries 
     switch (path) {
       case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
       case '/v1/me': return json(profile)
+      case '/v1/rides/current': return json({ ride: null })
       case '/v1/rides/r1:watch': return streaming(path, { ride: ride('RIDE_STATUS_COMPLETED') })
       case '/v1/rides/r1/charge': return json({ charge: { status: paid ? 'CHARGE_STATUS_CAPTURED' : 'CHARGE_STATUS_FAILED', declineReason: paid ? '' : 'card_declined', amount: price } })
       case '/v1/me/payment-method': return json({})
@@ -124,4 +127,108 @@ it('keeps an unpaid ride available until the rider changes the card and retries 
   await waitFor(() => expect(done.hasAttribute('disabled')).toBe(false))
   fireEvent.click(done)
   expect(sessionStorage.getItem('jalan:ride:u1')).toBeNull()
+})
+
+it('reuses the exact booking intent after a lost reply and page reload', async () => {
+  const attempts: unknown[] = []
+  const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+    switch (path) {
+      case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
+      case '/v1/me': return json(profile)
+      case '/v1/rides/current': return json({ ride: null })
+      case '/v1/fares:estimate': return json({ fare: price })
+      case '/v1/rides':
+        attempts.push(JSON.parse(String(init?.body)))
+        if (attempts.length === 1) throw new TypeError('Booking reply lost')
+        return json({ rideId: 'r1', fare: price })
+      case '/v1/rides/r1:watch': return streaming(path, { ride: ride('RIDE_STATUS_REQUESTED') })
+      default: throw new Error(`Unexpected ${path}`)
+    }
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const first = render(<App />)
+  await signIn()
+  fireEvent.click(screen.getByRole('button', { name: 'Estimate' }))
+  await screen.findByText('Rp 38.575')
+  fireEvent.click(screen.getByRole('button', { name: 'Request ride ↗' }))
+  await screen.findByText('Booking reply lost')
+  expect(JSON.parse(sessionStorage.getItem('jalan:booking:u1')!).requestId).toMatch(/^[a-f0-9-]{36}$/)
+  first.unmount() // credentials gone, intent receipt stays in the tab
+  render(<App />)
+  await signIn()
+  const retry = await screen.findByRole('button', { name: 'Retry original booking ↗' })
+  await waitFor(() => expect(retry.hasAttribute('disabled')).toBe(false))
+  expect(screen.getByLabelText('Pickup latitude').closest('fieldset')?.disabled).toBe(true)
+  fireEvent.click(retry)
+  await screen.findByRole('heading', { name: 'Finding your match.' })
+  expect(attempts).toHaveLength(2)
+  expect(attempts[0]).toEqual(attempts[1])
+  expect(sessionStorage.getItem('jalan:booking:u1')).toBeNull()
+})
+
+it('discovers the authenticated current ride on another device without a saved ID', async () => {
+  const fetcher = vi.fn(async (path: string) => {
+    switch (path) {
+      case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
+      case '/v1/me': return json(profile)
+      case '/v1/rides/current': return json({ ride: ride('RIDE_STATUS_ACCEPTED') })
+      case '/v1/rides/r1:watch': return streaming(path, { ride: ride('RIDE_STATUS_ACCEPTED') })
+      default: throw new Error(`Unexpected ${path}`)
+    }
+  })
+  vi.stubGlobal('fetch', fetcher)
+  render(<App />)
+  await signIn()
+  await screen.findByRole('heading', { name: 'You’re on your way.' })
+  expect(sessionStorage.getItem('jalan:ride:u1')).toBe('r1')
+  expect(fetcher.mock.calls.some(([path]) => path === '/v1/rides')).toBe(false)
+  await act(async () => { window.dispatchEvent(new Event('online')) })
+  await waitFor(() => expect(fetcher.mock.calls.filter(([path]) => path === '/v1/rides/current')).toHaveLength(2))
+})
+
+it('will not book a new trip when current-trip recovery failed', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+    switch (path) {
+      case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
+      case '/v1/me': return json(profile)
+      case '/v1/rides/current': return new Response(JSON.stringify({ code: 14, message: 'Ride service unavailable' }), { status: 503 })
+      case '/v1/fares:estimate': return json({ fare: price })
+      default: throw new Error(`Unexpected ${path}`)
+    }
+  }))
+  render(<App />)
+  await signIn()
+  await screen.findByText(/Could not check your current ride/)
+  fireEvent.click(screen.getByRole('button', { name: 'Estimate' }))
+  await screen.findByText('Rp 38.575')
+  expect(screen.getByRole('button', { name: 'Request ride ↗' }).hasAttribute('disabled')).toBe(true)
+})
+
+it('keeps the payment retry key if the retry reply is lost', async () => {
+  sessionStorage.setItem('jalan:ride:u1', 'r1')
+  const retries: unknown[] = []
+  let paid = false
+  vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
+    switch (path) {
+      case '/v1/auth/login': return json({ ...profile, tokens: tokens() })
+      case '/v1/me': return json(profile)
+      case '/v1/rides/current': return json({ ride: null })
+      case '/v1/rides/r1:watch': return streaming(path, { ride: ride('RIDE_STATUS_COMPLETED') })
+      case '/v1/rides/r1/charge': return json({ charge: { status: paid ? 'CHARGE_STATUS_CAPTURED' : 'CHARGE_STATUS_FAILED', amount: price, declineReason: 'card_declined' } })
+      case '/v1/rides/r1/charge:retry':
+        retries.push(JSON.parse(String(init?.body)))
+        if (retries.length === 1) throw new TypeError('Retry reply lost')
+        paid = true
+        return json({})
+      default: throw new Error(`Unexpected ${path}`)
+    }
+  }))
+  render(<App />)
+  await signIn()
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry payment' }))
+  await screen.findByText('Retry reply lost')
+  fireEvent.click(screen.getByRole('button', { name: 'Retry payment' }))
+  await screen.findByText('Paid · Rp 38.575')
+  expect(retries).toHaveLength(2)
+  expect(retries[0]).toEqual(retries[1])
 })

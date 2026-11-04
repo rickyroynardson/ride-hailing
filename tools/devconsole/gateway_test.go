@@ -45,8 +45,8 @@ func TestPublicRoutes(t *testing.T) {
 		}
 		return true
 	})
-	if n != 22 {
-		t.Fatalf("found %d public routes, want 22", n)
+	if n != 23 {
+		t.Fatalf("found %d public routes, want 23", n)
 	}
 	for _, tc := range []struct {
 		method string

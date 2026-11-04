@@ -6,6 +6,9 @@ import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
 service RideService {
+  rpc GetCurrentRide(GetCurrentRideRequest) returns (GetCurrentRideResponse) {
+    option (google.api.http) = {get: "/v1/rides/current"};
+  }
   rpc EstimateFare(EstimateFareRequest) returns (EstimateFareResponse) {
     option (google.api.http) = {
       post: "/v1/fares:estimate"
@@ -66,10 +69,23 @@ message EstimateFareResponse {
   Money fare = 1;
 }
 
-// FAILED_PRECONDITION: the rider has an unpaid ride; they must settle it first.
+// Idempotent per authenticated rider and request_id: retries return the original ride and stored fare, even after
+// the trip ends. Reusing the key for different pickup/dropoff coordinates is FAILED_PRECONDITION.
+// FAILED_PRECONDITION: the rider has an unpaid ride; they must settle it first (does not block a replay).
 message CreateRideRequest {
   Location pickup = 1;
   Location dropoff = 2;
+  // Required UUID, generated once per booking intent. Keep it and the coordinates unchanged on every retry.
+  string request_id = 3;
+}
+
+// No user ID is accepted: this only returns the authenticated caller's active trip. If a caller is both a rider and
+// a driver with active trips, their driver trip takes priority. Historical receipts are not returned.
+message GetCurrentRideRequest {}
+
+message GetCurrentRideResponse {
+  // Unset if the caller has no active trip.
+  Ride ride = 1;
 }
 
 message CreateRideResponse {
@@ -163,6 +179,8 @@ message Ride {
   google.protobuf.Timestamp started_at = 10;
   google.protobuf.Timestamp completed_at = 11;
   Money fare = 12;
+  // The original rider-scoped booking key, empty on legacy rides.
+  string request_id = 13;
 }
 
 enum RideStatus {

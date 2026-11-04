@@ -76,7 +76,7 @@ func main() {
 	defer rideConn.Close()
 
 	paymentRepo := payment.NewRepository(dbpool)
-	paymentService := payment.NewService(paymentRepo, provider.NewFake(), ridev1.NewRideServiceClient(rideConn), lg)
+	paymentService := payment.NewService(paymentRepo, provider.NewPersistentFake(dbpool), ridev1.NewRideServiceClient(rideConn), lg)
 
 	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), paymentService)
 

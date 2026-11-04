@@ -46,7 +46,8 @@ enum ChargeStatus {
 }
 
 // Records that the rider owes this and returns once it is saved; the provider is called in the background, so a slow
-// provider never holds up ride's outbox. Idempotent: a ride has one charge, and a repeat keeps the first.
+// provider never holds up ride's outbox. Idempotent per ride: an identical repeat succeeds; conflicting rider, driver,
+// kind, amount or currency is FAILED_PRECONDITION and never changes the original charge.
 message ChargeRideRequest {
   string ride_id = 1;
   string rider_id = 2;
@@ -83,6 +84,9 @@ message Charge {
 // is left as it is. NOT_FOUND: no charge on this ride for this rider.
 message RetryChargeRequest {
   string ride_id = 1;
+  // Required UUID, generated once per intentional retry. Replaying it never starts another provider attempt, even
+  // if the first retry has since been declined. A new card/retry intent needs a new request_id.
+  string request_id = 2;
 }
 
 message RetryChargeResponse {}

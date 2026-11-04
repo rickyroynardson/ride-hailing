@@ -105,7 +105,7 @@ func toRefundProto(r payment.Refund) *paymentv1.Refund {
 
 func (s *PaymentServer) RetryCharge(ctx context.Context, req *paymentv1.RetryChargeRequest) (*paymentv1.RetryChargeResponse, error) {
 	telemetry.Tag(ctx, attribute.String("ride.id", req.GetRideId()))
-	if err := s.service.RetryCharge(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID); err != nil {
+	if err := s.service.RetryCharge(ctx, req.GetRideId(), grpcserver.CallerFrom(ctx).UserID, req.GetRequestId()); err != nil {
 		return nil, err
 	}
 

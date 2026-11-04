@@ -64,13 +64,13 @@ func (s *PaymentService) processRefund(ctx context.Context, r dueRefund) (err er
 	case err != nil:
 		providerUnknown.Inc()
 		s.lg.Warn("provider outcome unknown", zap.String("refund_id", r.ID), zap.Int("attempts", r.Attempts), zap.Error(err))
-		return s.repository.PostponeRefund(ctx, r.ID, err.Error(), backoff(r.Attempts))
+		return s.repository.PostponeRefund(ctx, r.ID, err.Error(), backoff(r.Attempts), r.Attempts)
 	case res.FailureReason != "":
 		refundsFinished.WithLabelValues(RefundFailed).Inc()
-		return s.repository.FailRefund(ctx, r.ID, res.FailureReason)
+		return s.repository.FailRefund(ctx, r.ID, res.FailureReason, r.Attempts)
 	default:
 		refundsFinished.WithLabelValues(RefundSucceeded).Inc()
-		return s.repository.CompleteRefund(ctx, r.ID, res.Reference)
+		return s.repository.CompleteRefund(ctx, r.ID, res.Reference, r.Attempts)
 	}
 }
 
@@ -100,7 +100,7 @@ func (r *PaymentRepository) CreateRefund(ctx context.Context, in RefundInput, tr
 			in.IdempotencyKey,
 		).Scan(&res.ID, &firstCharge, &res.Amount.Amount, &res.Status, &res.Reason, &res.FailureReason)
 		if err == nil {
-			if firstCharge != chargeID || res.Amount.Amount != in.Amount {
+			if firstCharge != chargeID || res.Amount.Amount != in.Amount || res.Reason != in.Reason {
 				return ErrKeyReused
 			}
 			return nil
@@ -118,7 +118,7 @@ func (r *PaymentRepository) CreateRefund(ctx context.Context, in RefundInput, tr
 		).Scan(&reserved); err != nil {
 			return err
 		}
-		if reserved+in.Amount > charged {
+		if in.Amount > charged-reserved {
 			return ErrRefundTooLarge
 		}
 
@@ -178,7 +178,7 @@ func (r *PaymentRepository) ClaimDueRefunds(ctx context.Context, limit int, leas
 // CompleteRefund marks a pending refund succeeded and reverses its share of the charge in the ledger, atomically. The
 // driver's share comes back too, so their balance can go negative if they were already paid. The charge's row lock
 // keeps refunds finishing at once in order, since each one's shares depend on the total before it.
-func (r *PaymentRepository) CompleteRefund(ctx context.Context, refundID, providerRef string) error {
+func (r *PaymentRepository) CompleteRefund(ctx context.Context, refundID, providerRef string, claim int) error {
 	return pgx.BeginFunc(ctx, r.DB, func(tx pgx.Tx) error {
 		var chargeID string
 		if err := tx.QueryRow(ctx, `SELECT charge_id FROM refunds WHERE id = $1`, refundID).Scan(&chargeID); err != nil {
@@ -198,8 +198,8 @@ func (r *PaymentRepository) CompleteRefund(ctx context.Context, refundID, provid
 		var amount int64
 		err := tx.QueryRow(ctx,
 			`UPDATE refunds SET status = 'succeeded', provider_ref = $2, last_error = NULL, updated_at = now()
-			WHERE id = $1 AND status = 'pending' RETURNING amount`,
-			refundID, providerRef,
+			WHERE id = $1 AND status = 'pending' AND attempts = $3 RETURNING amount`,
+			refundID, providerRef, claim,
 		).Scan(&amount)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -219,21 +219,21 @@ func (r *PaymentRepository) CompleteRefund(ctx context.Context, refundID, provid
 
 // FailRefund ends a pending refund as failed: the provider gave a definite no, so no money moved, and the amount it
 // reserved is free again.
-func (r *PaymentRepository) FailRefund(ctx context.Context, refundID, reason string) error {
+func (r *PaymentRepository) FailRefund(ctx context.Context, refundID, reason string, claim int) error {
 	_, err := r.DB.Exec(ctx,
 		`UPDATE refunds SET status = 'failed', failure_reason = $2, last_error = NULL, updated_at = now()
-		WHERE id = $1 AND status = 'pending'`,
-		refundID, reason,
+		WHERE id = $1 AND status = 'pending' AND attempts = $3`,
+		refundID, reason, claim,
 	)
 	return err
 }
 
 // PostponeRefund leaves a refund pending after an unknown outcome, to try again with the same key after wait.
-func (r *PaymentRepository) PostponeRefund(ctx context.Context, refundID, lastError string, wait time.Duration) error {
+func (r *PaymentRepository) PostponeRefund(ctx context.Context, refundID, lastError string, wait time.Duration, claim int) error {
 	_, err := r.DB.Exec(ctx,
 		`UPDATE refunds SET next_attempt_at = now() + make_interval(secs => $3), last_error = $2, updated_at = now()
-		WHERE id = $1 AND status = 'pending'`,
-		refundID, lastError, wait.Seconds(),
+		WHERE id = $1 AND status = 'pending' AND attempts = $4`,
+		refundID, lastError, wait.Seconds(), claim,
 	)
 	return err
 }

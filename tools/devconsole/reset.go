@@ -254,7 +254,14 @@ func (c *console) handleRetryCharge(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	req := &paymentv1.RetryChargeRequest{RideId: r.PathValue("ride")}
+	var body struct {
+		RequestID string `json:"requestId"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {requestId}"})
+		return
+	}
+	req := &paymentv1.RetryChargeRequest{RideId: r.PathValue("ride"), RequestId: body.RequestID}
 	if _, err := c.call(a.Name, "payment.v1.PaymentService/RetryCharge", tok, false, req); err != nil {
 		writeErr(w, err)
 		return
@@ -370,7 +377,7 @@ func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 		{"rides", exec(ctx, c.ridesDB.Exec, `DELETE FROM rides`)},
 		{"outbox", exec(ctx, c.ridesDB.Exec, `DELETE FROM outbox`)},
 		// TRUNCATE, because the ledger refuses deletes; that is the point of it outside a dev reset.
-		{"payments", exec(ctx, c.paymentsDB.Exec, `TRUNCATE ledger_entries, refunds, charges, payment_methods`)},
+		{"payments", exec(ctx, c.paymentsDB.Exec, `TRUNCATE ledger_entries, refunds, charge_retry_requests, charges, payment_methods, fake_provider_operations, fake_provider_charges`)},
 		{"consoleUsers", exec(ctx, c.usersDB.Exec, `DELETE FROM users WHERE email LIKE 'dev-%@devconsole.local'`)},
 		{"redisKeys", func() (int64, error) {
 			keys := []string{"drivers:geo", "drivers:last_seen"}

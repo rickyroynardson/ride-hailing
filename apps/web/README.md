@@ -51,10 +51,14 @@ dependencies.
 - Access and refresh tokens stay **in memory**; reloading requires signing in again. Automatic refresh is serialized
   because refresh tokens are single-use. Sessions are independent across tabs. Do not use the same single-use refresh
   token in multiple client instances.
-- Only the last ride ID and selected mode are saved in tab-scoped `sessionStorage`, keyed by user ID. Signing in again
-  can resume that ride. The API has no ride history/current-ride lookup; another device needs the ride ID manually.
-  Copy the ID from the trip panel before leaving. If a booking response is lost, this API cannot recover its ID by
-  user: don't keep rebooking. That needs a future current-ride API or idempotent booking contract.
+- On login, browser focus or reconnect, the app checks `GET /v1/rides/current` and restores the authenticated user's
+  active trip, including on another device. A failed lookup blocks new bookings until recovery is retried. Historical
+  receipts and unpaid charges on another device still need their ride ID; this endpoint only discovers active trips.
+- The last ride ID, selected mode, pending booking payload/key and pending payment-retry keys are saved in tab-scoped
+  `sessionStorage`, keyed by user ID. A lost booking reply can be retried, including after reload, with exactly the
+  original `requestId`, pickup and dropoff. Coordinates are locked until the intent is acknowledged. A payment retry
+  also keeps its key until its reply is acknowledged. No tokens go into storage. If storage is disabled, intent keys
+  fall back to memory and only last until reload; server-side current-trip discovery still works.
 - The map starts in Jakarta. It uses public OpenStreetMap tiles (internet access required). The dashed connection is
   **not** a road route or ETA. Coordinates also work when tiles can't load.
 - Driver location is **manual**, with heartbeats every 4 seconds. There is no GPS tracking, navigation or background

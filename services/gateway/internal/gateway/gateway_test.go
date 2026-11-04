@@ -60,6 +60,7 @@ var publicRPCs = []string{
 	"ride.v1.RideService/CompleteRide",
 	"ride.v1.RideService/CreateRide",
 	"ride.v1.RideService/EstimateFare",
+	"ride.v1.RideService/GetCurrentRide",
 	"ride.v1.RideService/StartRide",
 	"ride.v1.RideService/WatchRide",
 	"user.v1.AuthService/Login",
@@ -204,6 +205,12 @@ func TestGateway(t *testing.T) {
 	do(t, traced, "POST", "/v1/fares:estimate", `{}`, "Authorization", "Bearer r")
 	if tp := be.ride.lastTraceparent(); !strings.HasSuffix(tp, "-01") {
 		t.Fatalf("estimate reached ride with traceparent %q, want sampled", tp)
+	}
+
+	// The recovery endpoint is available through the generated public route.
+	res, body = do(t, api, "GET", "/v1/rides/current", "", "Authorization", "Bearer rider-token")
+	if res.StatusCode != 200 || !strings.Contains(body, `"rideId":"current-ride"`) {
+		t.Fatalf("current ride route: %d %s", res.StatusCode, body)
 	}
 
 	// Bodies are bounded.
@@ -429,6 +436,10 @@ func (f *fakeRide) CreateRide(ctx context.Context, in *ridev1.CreateRideRequest)
 
 func (f *fakeRide) CancelRide(context.Context, *ridev1.CancelRideRequest) (*ridev1.CancelRideResponse, error) {
 	return nil, status.Error(codes.NotFound, "ride not found")
+}
+
+func (f *fakeRide) GetCurrentRide(context.Context, *ridev1.GetCurrentRideRequest) (*ridev1.GetCurrentRideResponse, error) {
+	return &ridev1.GetCurrentRideResponse{Ride: &ridev1.Ride{RideId: "current-ride", Status: ridev1.RideStatus_RIDE_STATUS_ACCEPTED}}, nil
 }
 
 func (f *fakeRide) AssignDriver(context.Context, *ridev1.AssignDriverRequest) (*ridev1.AssignDriverResponse, error) {

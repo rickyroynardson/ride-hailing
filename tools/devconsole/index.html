@@ -184,18 +184,29 @@ async function refund(rideId, left) {
   await api('POST', `/api/rides/${rideId}/refund`, { amount: Number(input), key: crypto.randomUUID(), reason: 'devconsole' });
   ui.tab = 'rides'; await poll();
 }
-async function retryCharge(id, rideId) { await api('POST', `/api/actors/${id}/rides/${rideId}/retry-charge`); await poll(); }
+const pendingBookings = new Map(), pendingRetries = new Map();
+async function retryCharge(id, rideId) {
+  const key = id + ':' + rideId;
+  if (!pendingRetries.has(key)) pendingRetries.set(key, crypto.randomUUID());
+  await api('POST', `/api/actors/${id}/rides/${rideId}/retry-charge`, { requestId: pendingRetries.get(key) });
+  pendingRetries.delete(key);
+  await poll();
+}
 async function removeActor(id) { await api('POST', `/api/actors/${id}/remove`); if (ui.selected === id) ui.selected = null; await poll(); }
 async function clearLog() { await api('POST', '/api/calls/clear'); ui.expanded.clear(); await poll(); }
 async function resetAll() {
   if (!confirm('Reset all dev data?\n\nDeletes every ride, outbox message, offer, match request, charge, refund, ledger entry and driver location, and the users this console created. Users you registered yourself are kept.')) return;
   const removed = await api('POST', '/api/reset');
+  pendingBookings.clear(); pendingRetries.clear();
   ui.selected = null; ui.draft = {}; ui.expanded.clear();
   toast(`Reset: ${Object.entries(removed).map(([k, n]) => `${n} ${k}`).join(', ')}`);
   await poll();
 }
 async function requestRide(id) {
-  await api('POST', `/api/actors/${id}/rides`, ui.draft);
+  const fingerprint = id + JSON.stringify(ui.draft);
+  if (!pendingBookings.has(fingerprint)) pendingBookings.set(fingerprint, crypto.randomUUID());
+  await api('POST', `/api/actors/${id}/rides`, { ...ui.draft, requestId: pendingBookings.get(fingerprint) });
+  pendingBookings.delete(fingerprint);
   ui.draft = {}; ui.tab = 'rides';
   await poll();
 }

@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	RideService_GetCurrentRide_FullMethodName         = "/ride.v1.RideService/GetCurrentRide"
 	RideService_EstimateFare_FullMethodName           = "/ride.v1.RideService/EstimateFare"
 	RideService_CreateRide_FullMethodName             = "/ride.v1.RideService/CreateRide"
 	RideService_FilterAvailableDrivers_FullMethodName = "/ride.v1.RideService/FilterAvailableDrivers"
@@ -35,6 +36,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RideServiceClient interface {
+	GetCurrentRide(ctx context.Context, in *GetCurrentRideRequest, opts ...grpc.CallOption) (*GetCurrentRideResponse, error)
 	EstimateFare(ctx context.Context, in *EstimateFareRequest, opts ...grpc.CallOption) (*EstimateFareResponse, error)
 	CreateRide(ctx context.Context, in *CreateRideRequest, opts ...grpc.CallOption) (*CreateRideResponse, error)
 	FilterAvailableDrivers(ctx context.Context, in *FilterAvailableDriversRequest, opts ...grpc.CallOption) (*FilterAvailableDriversResponse, error)
@@ -53,6 +55,16 @@ type rideServiceClient struct {
 
 func NewRideServiceClient(cc grpc.ClientConnInterface) RideServiceClient {
 	return &rideServiceClient{cc}
+}
+
+func (c *rideServiceClient) GetCurrentRide(ctx context.Context, in *GetCurrentRideRequest, opts ...grpc.CallOption) (*GetCurrentRideResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCurrentRideResponse)
+	err := c.cc.Invoke(ctx, RideService_GetCurrentRide_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *rideServiceClient) EstimateFare(ctx context.Context, in *EstimateFareRequest, opts ...grpc.CallOption) (*EstimateFareResponse, error) {
@@ -168,6 +180,7 @@ func (c *rideServiceClient) RecordPayment(ctx context.Context, in *RecordPayment
 // All implementations must embed UnimplementedRideServiceServer
 // for forward compatibility.
 type RideServiceServer interface {
+	GetCurrentRide(context.Context, *GetCurrentRideRequest) (*GetCurrentRideResponse, error)
 	EstimateFare(context.Context, *EstimateFareRequest) (*EstimateFareResponse, error)
 	CreateRide(context.Context, *CreateRideRequest) (*CreateRideResponse, error)
 	FilterAvailableDrivers(context.Context, *FilterAvailableDriversRequest) (*FilterAvailableDriversResponse, error)
@@ -188,6 +201,9 @@ type RideServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRideServiceServer struct{}
 
+func (UnimplementedRideServiceServer) GetCurrentRide(context.Context, *GetCurrentRideRequest) (*GetCurrentRideResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCurrentRide not implemented")
+}
 func (UnimplementedRideServiceServer) EstimateFare(context.Context, *EstimateFareRequest) (*EstimateFareResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EstimateFare not implemented")
 }
@@ -237,6 +253,24 @@ func RegisterRideServiceServer(s grpc.ServiceRegistrar, srv RideServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&RideService_ServiceDesc, srv)
+}
+
+func _RideService_GetCurrentRide_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCurrentRideRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RideServiceServer).GetCurrentRide(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RideService_GetCurrentRide_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RideServiceServer).GetCurrentRide(ctx, req.(*GetCurrentRideRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _RideService_EstimateFare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -419,6 +453,10 @@ var RideService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "ride.v1.RideService",
 	HandlerType: (*RideServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetCurrentRide",
+			Handler:    _RideService_GetCurrentRide_Handler,
+		},
 		{
 			MethodName: "EstimateFare",
 			Handler:    _RideService_EstimateFare_Handler,

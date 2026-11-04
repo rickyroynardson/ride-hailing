@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
@@ -168,7 +170,7 @@ func (r *rider) ride(ctx context.Context) bool {
 	booked := time.Now()
 	var created ridev1.CreateRideResponse
 	if err := r.w.api.call(ctx, http.MethodPost, "/v1/rides", "/v1/rides", r.s.token(ctx),
-		&ridev1.CreateRideRequest{Pickup: &ridev1.Location{Lat: pickup.GetLat(), Lng: pickup.GetLng()}, Dropoff: dropoff}, &created); err != nil {
+		&ridev1.CreateRideRequest{RequestId: uuid.NewString(), Pickup: &ridev1.Location{Lat: pickup.GetLat(), Lng: pickup.GetLng()}, Dropoff: dropoff}, &created); err != nil {
 		if ctx.Err() == nil {
 			rec.count(stage, fmt.Sprintf("fail book %d", statusOf(err)))
 		}

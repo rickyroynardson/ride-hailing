@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Api, ApiError } from './api'
 import { useCharge, useDriver, useRide } from './hooks'
+import { acknowledgeBooking, acknowledgePaymentRetry, bookingIntent, pendingBooking, paymentRetryIntent } from './intents'
 import Map from './Map'
 import { CENTER, coords, money, terminal, type AuthResult, type Money, type Point, type Profile, type Ride } from './types'
 
@@ -60,8 +61,9 @@ function Auth({ api, onSignedIn, expired }: { api: Api; onSignedIn: (p: Profile)
 function Workspace({ api, profile, setProfile }: { api: Api; profile: Profile; setProfile: (p: Profile | null) => void }) {
   const [mode, setMode] = useState<'rider' | 'driver'>(() => storedMode(profile.user.id))
   const [rideId, setRideId] = useState(() => storedRide(profile.user.id))
-  const [pickup, setPickup] = useState<Point>(CENTER)
-  const [dropoff, setDropoff] = useState<Point>({ lat: -6.23, lng: 106.835 })
+  const [pending, setPending] = useState(() => pendingBooking(profile.user.id))
+  const [pickup, setPickup] = useState<Point>(() => pending?.pickup || CENTER)
+  const [dropoff, setDropoff] = useState<Point>(() => pending?.dropoff || { lat: -6.23, lng: 106.835 })
   const [position, setPosition] = useState<Point>(CENTER)
   const [selecting, setSelecting] = useState<'pickup' | 'dropoff'>('pickup')
   const [fare, setFare] = useState<Money | null>(null)
@@ -70,24 +72,62 @@ function Workspace({ api, profile, setProfile }: { api: Api; profile: Profile; s
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [now, setNow] = useState(Date.now())
+  const [recovering, setRecovering] = useState(true)
+  const [recoveryError, setRecoveryError] = useState('')
+  const [recoveryRevision, setRecoveryRevision] = useState(0)
+  const recoveryEpoch = useRef(0)
   const watched = useRide(api, rideId)
   const driver = useDriver(api, online, position)
   const active = !!rideId && !terminal(watched.ride)
   const approved = profile.driverProfile?.status === 'approved'
+  const blocked = busy || recovering || !!recoveryError
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
   useEffect(() => {
     if (watched.ride?.driverId === profile.user.id) setMode('driver')
   }, [watched.ride?.driverId, profile.user.id])
   useEffect(() => { try { sessionStorage.setItem(`jalan:mode:${profile.user.id}`, mode) } catch { /* optional tab state */ } }, [mode, profile.user.id])
 
-  function remember(id: string) { setRideId(id); saveRide(profile.user.id, id) }
+  function remember(id: string) { recoveryEpoch.current++; setRecovering(false); setRideId(id); saveRide(profile.user.id, id) }
+  useEffect(() => {
+    let request: AbortController | undefined
+    async function recover() {
+      request?.abort()
+      const controller = new AbortController()
+      request = controller
+      const epoch = recoveryEpoch.current
+      setRecovering(true)
+      try {
+        const result = await api.request<{ ride?: Ride | null }>('/v1/rides/current', 'GET', undefined, controller.signal)
+        if (controller.signal.aborted || epoch !== recoveryEpoch.current) return
+        setRecoveryError('')
+        if (result.ride) {
+          setRideId(result.ride.rideId)
+          saveRide(profile.user.id, result.ride.rideId)
+          setMode(result.ride.driverId === profile.user.id ? 'driver' : 'rider')
+          if (pendingBooking(profile.user.id)?.requestId === result.ride.requestId) {
+            acknowledgeBooking(profile.user.id)
+            setPending(null)
+          }
+        }
+      } catch (e) {
+        if (!controller.signal.aborted && epoch === recoveryEpoch.current) setRecoveryError(humanError(e))
+      } finally {
+        if (!controller.signal.aborted && epoch === recoveryEpoch.current) setRecovering(false)
+      }
+    }
+    const onFocus = () => { void recover() }
+    void recover()
+    window.addEventListener('online', onFocus)
+    window.addEventListener('focus', onFocus)
+    return () => { request?.abort(); window.removeEventListener('online', onFocus); window.removeEventListener('focus', onFocus) }
+  }, [api, profile.user.id, recoveryRevision])
   async function perform(fn: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('')
     try { await fn() } catch (e) { setError(humanError(e)) } finally { setBusy(false) }
   }
   function choose(p: Point) {
     if (mode === 'driver') setPosition(p)
-    else if (!active) { setFare(null); if (selecting === 'pickup') setPickup(p); else setDropoff(p) }
+    else if (!active && !pending) { setFare(null); if (selecting === 'pickup') setPickup(p); else setDropoff(p) }
   }
   async function offline() { setOnline(false); await api.request('/v1/driver/location', 'DELETE') }
   async function signOut() {
@@ -105,24 +145,31 @@ function Workspace({ api, profile, setProfile }: { api: Api; profile: Profile; s
     <div className="workspace-grid"><aside className="control-panel">
       <div className="segmented mode-switch"><button className={mode === 'rider' ? 'selected' : ''} disabled={busy || active || online} onClick={() => setMode('rider')}>I need a ride</button><button className={mode === 'driver' ? 'selected' : ''} disabled={busy || active} onClick={() => setMode('driver')}>I’m driving</button></div>
       <ErrorNote>{error}</ErrorNote>{notice && <p className="notice" role="status">{notice}</p>}
+      {recovering && <p className="muted" role="status">Checking for your current ride…</p>}
+      <ErrorNote>{recoveryError && `Could not check your current ride: ${recoveryError}`}</ErrorNote>
+      {recoveryError && <button className="secondary wide" onClick={() => setRecoveryRevision(n => n + 1)}>Retry trip recovery</button>}
       {mode === 'rider' ? <>
         {!active && <section><span className="eyebrow">WHERE TO?</span><h2>A new destination.</h2><p className="muted">Choose points on the map, or enter coordinates below.</p>
-          <PointInput label="Pickup" point={pickup} onChange={p => { setPickup(p); setFare(null) }} selected={selecting === 'pickup'} onSelect={() => setSelecting('pickup')} />
-          <PointInput label="Dropoff" point={dropoff} onChange={p => { setDropoff(p); setFare(null) }} selected={selecting === 'dropoff'} onSelect={() => setSelecting('dropoff')} />
+          <PointInput label="Pickup" point={pickup} onChange={p => { setPickup(p); setFare(null) }} disabled={!!pending} selected={selecting === 'pickup'} onSelect={() => setSelecting('pickup')} />
+          <PointInput label="Dropoff" point={dropoff} onChange={p => { setDropoff(p); setFare(null) }} disabled={!!pending} selected={selecting === 'dropoff'} onSelect={() => setSelecting('dropoff')} />
           <div className="fare-strip"><span>Estimated fare</span><strong>{money(fare)}</strong></div>
           <div className="button-row"><button className="secondary" disabled={busy} onClick={() => perform(async () => { const res = await api.request<{ fare: Money }>('/v1/fares:estimate', 'POST', { pickup, dropoff }); setFare(res.fare) })}>Estimate</button>
-            <button className="primary" disabled={busy || !fare || !!rideId} onClick={() => perform(async () => {
-              const res = await api.request<{ rideId: string; fare: Money }>('/v1/rides', 'POST', { pickup, dropoff })
+            <button className="primary" disabled={blocked || (!fare && !pending) || !!rideId} onClick={() => perform(async () => {
+              const intent = bookingIntent(profile.user.id, pickup, dropoff)
+              setPending(intent)
+              const res = await api.request<{ rideId: string; fare: Money }>('/v1/rides', 'POST', intent)
               remember(res.rideId)
-            })}>{busy ? 'Please wait…' : 'Request ride ↗'}</button></div>
-          <small className="muted">Estimate first. The fare returned at booking is the final upfront price. If a booking times out, don’t keep submitting—resume it by ID.</small>
+              acknowledgeBooking(profile.user.id)
+              setPending(null)
+            })}>{busy ? 'Please wait…' : pending ? 'Retry original booking ↗' : 'Request ride ↗'}</button></div>
+          <small className="muted">{pending ? 'The previous booking has not been acknowledged. Retrying keeps the same request ID and coordinates; it cannot create a second ride.' : 'Estimate first. The fare returned at booking is the final upfront price. A lost response can be safely retried.'}</small>
         </section>}
       </> : <>
         {!approved ? <DriverApplication api={api} profile={profile} onUpdate={setProfile} /> : <section>
           <div className="section-heading"><h2>Your driver seat.</h2><span className={`badge ${online ? 'green' : ''}`}>{online ? 'Online' : 'Offline'}</span></div>
           <p className="muted">Manual location mode: click the map to move your reported position. This preview does not use GPS or navigate.</p>
           <PointInput label="My position" point={position} onChange={setPosition} selected />
-          <button className={online ? 'secondary wide' : 'primary wide'} disabled={busy} onClick={() => perform(async () => {
+          <button className={online ? 'secondary wide' : 'primary wide'} disabled={online ? busy : blocked} onClick={() => perform(async () => {
             if (online) await offline()
             else { await api.refresh(true); setOnline(true) }
           })}>{online ? 'Go offline' : 'Go online ↗'}</button>
@@ -130,7 +177,7 @@ function Workspace({ api, profile, setProfile }: { api: Api; profile: Profile; s
           <ErrorNote>{driver.error}</ErrorNote>
           {offer && !active ? <div className="offer-card"><span className="eyebrow">A RIDE NEAR YOU · {seconds}s</span><h3>Someone’s ready to go.</h3><p>Pickup: {coords(offer.pickup)}</p><div className="button-row">
             <button className="secondary" disabled={busy} onClick={() => perform(async () => { await api.request(`/v1/offers/${encodeURIComponent(offer.offerId)}:decline`, 'POST', {}) })}>Decline</button>
-            <button className="primary" disabled={busy} onClick={() => perform(async () => {
+            <button className="primary" disabled={blocked} onClick={() => perform(async () => {
               // Remember the candidate first: a timeout may mean the assignment succeeded but its reply was lost.
               saveRide(profile.user.id, offer.rideId)
               try {
@@ -146,7 +193,7 @@ function Workspace({ api, profile, setProfile }: { api: Api; profile: Profile; s
           <Earnings api={api} revision={watched.ride?.status} />
         </section>}
       </>}
-      {rideId && <section className="ride-section"><RideCard api={api} id={rideId} ride={watched.ride} connection={watched.connection} error={watched.error} mode={mode} busy={busy} perform={perform} onDone={() => remember('')} /></section>}
+      {rideId && <section className="ride-section"><RideCard api={api} userId={profile.user.id} id={rideId} ride={watched.ride} connection={watched.connection} error={watched.error} mode={mode} busy={busy} perform={perform} onDone={() => remember('')} /></section>}
       {!active && <details className="resume"><summary>Resume a ride by ID</summary><form onSubmit={e => { e.preventDefault(); const id = String(new FormData(e.currentTarget).get('rideId')).trim(); if (id) remember(id) }}><label>Ride ID<input name="rideId" required placeholder="Paste your ride ID" /></label><button className="secondary" disabled={busy}>Resume</button></form></details>}
       {active && !watched.ride && watched.error && <button className="text-button" onClick={() => remember('')}>Dismiss this ride ID</button>}
       {mode === 'rider' && <PaymentMethod api={api} />}
@@ -157,7 +204,7 @@ function Workspace({ api, profile, setProfile }: { api: Api; profile: Profile; s
   </main>
 }
 
-function RideCard({ api, id, ride, connection, error, mode, busy, perform, onDone }: { api: Api; id: string; ride: Ride | null; connection: string; error: string; mode: string; busy: boolean; perform: (fn: () => Promise<void>) => Promise<void>; onDone: () => void }) {
+function RideCard({ api, userId, id, ride, connection, error, mode, busy, perform, onDone }: { api: Api; userId: string; id: string; ride: Ride | null; connection: string; error: string; mode: string; busy: boolean; perform: (fn: () => Promise<void>) => Promise<void>; onDone: () => void }) {
   const payment = useCharge(api, ride)
   const labels: Record<string, [string, string]> = {
     RIDE_STATUS_REQUESTED: ['Finding your match.', 'We’re looking for an available driver nearby.'],
@@ -177,7 +224,11 @@ function RideCard({ api, id, ride, connection, error, mode, busy, perform, onDon
       {terminal(ride) && <div className="payment-summary"><span className="eyebrow">PAYMENT</span><p>{payment.free ? 'No charge for this cancellation.' : payment.charge ? payment.charge.status === 'CHARGE_STATUS_CAPTURED' ? `Paid · ${money(payment.charge.amount)}` : payment.charge.status === 'CHARGE_STATUS_FAILED' ? `Not paid · ${payment.charge.declineReason || 'Card declined'}` : 'Processing your payment…' : 'Waiting for the payment service…'}</p>
         {payment.charge?.refundedAmount && payment.charge.refundedAmount !== '0' && <p>Refunded · {money({ ...payment.charge.amount, amount: payment.charge.refundedAmount })}</p>}
         <ErrorNote>{payment.error}</ErrorNote>
-        {mode === 'rider' && payment.charge?.status === 'CHARGE_STATUS_FAILED' && <button className="primary wide" disabled={busy} onClick={() => perform(async () => { await api.request(`${route(id)}/charge:retry`, 'POST', {}); payment.reload() })}>Retry payment</button>}
+        {mode === 'rider' && payment.charge?.status === 'CHARGE_STATUS_FAILED' && <button className="primary wide" disabled={busy} onClick={() => perform(async () => {
+          await api.request(`${route(id)}/charge:retry`, 'POST', { requestId: paymentRetryIntent(userId, id) })
+          acknowledgePaymentRetry(userId, id)
+          payment.reload()
+        })}>Retry payment</button>}
         {!payment.free && <button className="text-button" onClick={payment.reload}>Check payment</button>}
         <button className="secondary wide" onClick={onDone} disabled={busy || (mode === 'rider' && !payment.free && payment.charge?.status !== 'CHARGE_STATUS_CAPTURED')}>Done · Back to planning</button>
       </div>}
@@ -226,11 +277,11 @@ function Earnings({ api, revision }: { api: Api; revision?: string }) {
   return <div className="earnings"><div><span className="eyebrow">YOUR EARNINGS</span><strong>{balances.length ? balances.map(money).join(' · ') : 'Rp 0'}</strong><small className="muted">Ledger balance, not a payout.</small></div><button className="text-button" onClick={() => load()} disabled={busy}>Refresh</button><ErrorNote>{error}</ErrorNote></div>
 }
 
-function PointInput({ label, point, onChange, selected, onSelect }: { label: string; point: Point; onChange: (p: Point) => void; selected?: boolean; onSelect?: () => void }) {
-  return <div className={`point-input ${selected ? 'focused' : ''}`}>
+function PointInput({ label, point, onChange, selected, onSelect, disabled }: { label: string; point: Point; onChange: (p: Point) => void; selected?: boolean; onSelect?: () => void; disabled?: boolean }) {
+  return <fieldset disabled={disabled} className={`point-input ${selected ? 'focused' : ''}`}>
     <button type="button" className="point-label" onClick={onSelect}><span>{label === 'Dropoff' ? 'B' : label === 'Pickup' ? 'A' : '↗'}</span>{label}</button>
     <div className="coordinate-row"><label>Latitude<input type="number" step="any" min={-85} max={85} aria-label={`${label} latitude`} value={point.lat ?? 0} onChange={e => { const n = e.currentTarget.valueAsNumber; if (Number.isFinite(n) && n >= -85 && n <= 85) onChange({ ...point, lat: n }) }} /></label><label>Longitude<input type="number" step="any" min={-180} max={180} aria-label={`${label} longitude`} value={point.lng ?? 0} onChange={e => { const n = e.currentTarget.valueAsNumber; if (Number.isFinite(n) && n >= -180 && n <= 180) onChange({ ...point, lng: n }) }} /></label></div>
-  </div>
+  </fieldset>
 }
 
 function ErrorNote({ children }: { children?: ReactNode }) { return children ? <div className="error-note" role="alert">{children}</div> : null }

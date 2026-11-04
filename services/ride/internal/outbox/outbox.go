@@ -161,12 +161,13 @@ func (r *Relay) Listen(ctx context.Context) error {
 }
 
 type message struct {
-	id          int64
-	kind        string
-	payload     []byte
-	traceParent string
-	attempts    int
-	createdAt   time.Time
+	id           int64
+	kind         string
+	payload      []byte
+	traceParent  string
+	attempts     int
+	createdAt    time.Time
+	claimVersion int64
 }
 
 // Run delivers one batch of due messages, oldest first. It returns only database errors: a failed delivery backs off
@@ -203,16 +204,16 @@ func (r *Relay) claim(ctx context.Context) ([]message, error) {
 			)
 			ORDER BY o.id LIMIT $1 FOR UPDATE OF o SKIP LOCKED
 		)
-		UPDATE outbox SET next_attempt_at = now() + make_interval(secs => $2)
+		UPDATE outbox SET next_attempt_at = now() + make_interval(secs => $2), claim_version = outbox.claim_version + 1
 		FROM due WHERE outbox.id = due.id
-		RETURNING outbox.id, outbox.kind, outbox.payload, COALESCE(outbox.trace_parent, ''), outbox.attempts, outbox.created_at`,
+		RETURNING outbox.id, outbox.kind, outbox.payload, COALESCE(outbox.trace_parent, ''), outbox.attempts, outbox.created_at, outbox.claim_version`,
 		batchSize, claimLease.Seconds())
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (message, error) {
 		var m message
-		err := row.Scan(&m.id, &m.kind, &m.payload, &m.traceParent, &m.attempts, &m.createdAt)
+		err := row.Scan(&m.id, &m.kind, &m.payload, &m.traceParent, &m.attempts, &m.createdAt, &m.claimVersion)
 		return m, err
 	})
 }
@@ -228,9 +229,12 @@ func (r *Relay) deliver(ctx context.Context, m message) error {
 
 	err := r.send(msgCtx, m.kind, m.payload)
 	if err == nil {
-		sentTotal.WithLabelValues(m.kind).Inc()
-		deliveryLag.WithLabelValues(m.kind).Observe(time.Since(m.createdAt).Seconds())
-		_, uerr := r.db.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, sent_at = now(), last_error = NULL WHERE id = $1`, m.id)
+		tag, uerr := r.db.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, sent_at = now(), last_error = NULL
+			WHERE id = $1 AND claim_version = $2 AND sent_at IS NULL AND dead_at IS NULL`, m.id, m.claimVersion)
+		if uerr == nil && tag.RowsAffected() == 1 {
+			sentTotal.WithLabelValues(m.kind).Inc()
+			deliveryLag.WithLabelValues(m.kind).Observe(time.Since(m.createdAt).Seconds())
+		}
 		end(uerr)
 		return uerr
 	}
@@ -238,15 +242,19 @@ func (r *Relay) deliver(ctx context.Context, m message) error {
 	defer end(err)
 	failedTotal.WithLabelValues(m.kind).Inc()
 	if permanent(err) {
-		deadTotal.WithLabelValues(m.kind).Inc()
-		r.lg.Error("outbox message dead", zap.Int64("id", m.id), zap.String("kind", m.kind), zap.Error(err))
-		_, uerr := r.db.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, dead_at = now(), last_error = $2 WHERE id = $1`, m.id, err.Error())
+		tag, uerr := r.db.Exec(msgCtx, `UPDATE outbox SET attempts = attempts + 1, dead_at = now(), last_error = $2
+			WHERE id = $1 AND claim_version = $3 AND sent_at IS NULL AND dead_at IS NULL`, m.id, err.Error(), m.claimVersion)
+		if uerr == nil && tag.RowsAffected() == 1 {
+			deadTotal.WithLabelValues(m.kind).Inc()
+			r.lg.Error("outbox message dead", zap.Int64("id", m.id), zap.String("kind", m.kind), zap.Error(err))
+		}
 		return uerr
 	}
 	r.lg.Warn("outbox delivery failed", zap.Int64("id", m.id), zap.String("kind", m.kind), zap.Int("attempts", m.attempts+1), zap.Error(err))
 	_, uerr := r.db.Exec(msgCtx,
-		`UPDATE outbox SET attempts = attempts + 1, next_attempt_at = now() + make_interval(secs => $3), last_error = $2 WHERE id = $1`,
-		m.id, err.Error(), backoff(m.attempts+1).Seconds())
+		`UPDATE outbox SET attempts = attempts + 1, next_attempt_at = now() + make_interval(secs => $3), last_error = $2
+		WHERE id = $1 AND claim_version = $4 AND sent_at IS NULL AND dead_at IS NULL`,
+		m.id, err.Error(), backoff(m.attempts+1).Seconds(), m.claimVersion)
 	return uerr
 }
 
@@ -261,10 +269,12 @@ func backoff(attempts int) time.Duration {
 // errMalformed is a payload no number of retries will fix.
 var errMalformed = errors.New("malformed payload")
 
+var errChargeConflict = errors.New("payment rejected conflicting charge")
+
 // permanent reports whether retrying can never help. Anything else is retried: an outage or a misconfiguration ends,
 // and an unknown kind may be one a newer replica queued during a rollout.
 func permanent(err error) bool {
-	return errors.Is(err, errMalformed) || status.Code(err) == codes.InvalidArgument
+	return errors.Is(err, errMalformed) || errors.Is(err, errChargeConflict) || status.Code(err) == codes.InvalidArgument
 }
 
 // rideIDOf reads the ride a message is about, for its trace; every message kind carries ride_id.
@@ -323,6 +333,9 @@ func (r *Relay) send(ctx context.Context, kind string, payload []byte) error {
 			Kind:     toChargeKindProto[m.ChargeKind],
 			Amount:   &paymentv1.Money{Amount: m.Amount, Currency: m.Currency},
 		})
+		if status.Code(err) == codes.FailedPrecondition {
+			return fmt.Errorf("%w: %v", errChargeConflict, err)
+		}
 		return err
 	default:
 		return fmt.Errorf("unknown outbox kind %q", kind)

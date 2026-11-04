@@ -456,8 +456,9 @@ func (c *console) handleRequestRide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Pickup  latLng `json:"pickup"`
-		Dropoff latLng `json:"dropoff"`
+		Pickup    latLng `json:"pickup"`
+		Dropoff   latLng `json:"dropoff"`
+		RequestID string `json:"requestId"`
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {pickup, dropoff}"})
@@ -472,8 +473,9 @@ func (c *console) handleRequestRide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &ridev1.CreateRideRequest{
-		Pickup:  &ridev1.Location{Lat: body.Pickup.Lat, Lng: body.Pickup.Lng},
-		Dropoff: &ridev1.Location{Lat: body.Dropoff.Lat, Lng: body.Dropoff.Lng},
+		RequestId: body.RequestID,
+		Pickup:    &ridev1.Location{Lat: body.Pickup.Lat, Lng: body.Pickup.Lng},
+		Dropoff:   &ridev1.Location{Lat: body.Dropoff.Lat, Lng: body.Dropoff.Lng},
 	}
 	res, err := c.call(a.Name, "ride.v1.RideService/CreateRide", tok, false, req)
 	if err != nil {

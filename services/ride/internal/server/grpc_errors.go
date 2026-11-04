@@ -14,7 +14,7 @@ func errorCodes(err error) (codes.Code, bool) {
 		return codes.InvalidArgument, true
 	case errors.Is(err, ride.ErrActiveRide), errors.Is(err, ride.ErrDriverBusy):
 		return codes.AlreadyExists, true
-	case errors.Is(err, ride.ErrRideUnavailable), errors.Is(err, ride.ErrPaymentOverdue):
+	case errors.Is(err, ride.ErrRideUnavailable), errors.Is(err, ride.ErrPaymentOverdue), errors.Is(err, ride.ErrRequestReused):
 		return codes.FailedPrecondition, true
 	case errors.Is(err, ride.ErrRideNotFound):
 		return codes.NotFound, true

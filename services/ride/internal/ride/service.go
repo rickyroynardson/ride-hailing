@@ -114,8 +114,15 @@ func (s *RideService) CreateRide(ctx context.Context, in CreateRideInput) (strin
 	}
 
 	fare := priceFare(*in.Pickup, *in.Dropoff)
-	id, err := s.repository.CreateRide(ctx, in, fare)
-	return id, fare, err
+	return s.repository.CreateRide(ctx, in, fare)
+}
+
+func (s *RideService) GetCurrentRide(ctx context.Context, userID string) (*Ride, error) {
+	r, err := s.repository.GetCurrentRide(ctx, userID)
+	if err == nil && r != nil {
+		r.DriverLocation = s.driverLocation(ctx, *r)
+	}
+	return r, err
 }
 
 // maxFilterIDs bounds one FilterAvailableDrivers call; matching asks about a few dozen nearby drivers at a time.

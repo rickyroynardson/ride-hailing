@@ -34,9 +34,10 @@ func (s *RideServer) EstimateFare(ctx context.Context, req *ridev1.EstimateFareR
 
 func (s *RideServer) CreateRide(ctx context.Context, req *ridev1.CreateRideRequest) (*ridev1.CreateRideResponse, error) {
 	id, fare, err := s.service.CreateRide(ctx, ride.CreateRideInput{
-		RiderID: grpcserver.CallerFrom(ctx).UserID,
-		Pickup:  toLocation(req.GetPickup()),
-		Dropoff: toLocation(req.GetDropoff()),
+		RiderID:   grpcserver.CallerFrom(ctx).UserID,
+		RequestID: req.GetRequestId(),
+		Pickup:    toLocation(req.GetPickup()),
+		Dropoff:   toLocation(req.GetDropoff()),
 	})
 	if err != nil {
 		return nil, err
@@ -53,6 +54,18 @@ func (s *RideServer) FilterAvailableDrivers(ctx context.Context, req *ridev1.Fil
 	}
 
 	return &ridev1.FilterAvailableDriversResponse{DriverIds: ids}, nil
+}
+
+func (s *RideServer) GetCurrentRide(ctx context.Context, _ *ridev1.GetCurrentRideRequest) (*ridev1.GetCurrentRideResponse, error) {
+	r, err := s.service.GetCurrentRide(ctx, grpcserver.CallerFrom(ctx).UserID)
+	if err != nil {
+		return nil, err
+	}
+	res := &ridev1.GetCurrentRideResponse{}
+	if r != nil {
+		res.Ride = toRideProto(*r)
+	}
+	return res, nil
 }
 
 func (s *RideServer) AssignDriver(ctx context.Context, req *ridev1.AssignDriverRequest) (*ridev1.AssignDriverResponse, error) {
@@ -139,6 +152,7 @@ var toCancelReasonProto = map[string]ridev1.CancelReason{
 func toRideProto(r ride.Ride) *ridev1.Ride {
 	res := &ridev1.Ride{
 		RideId:       r.ID,
+		RequestId:    r.RequestID,
 		Status:       toStatusProto[r.Status],
 		CancelReason: toCancelReasonProto[r.CancelReason],
 		Pickup:       &ridev1.Location{Lat: r.Pickup.Lat, Lng: r.Pickup.Lng},

@@ -229,7 +229,8 @@ func (x *Money) GetCurrency() string {
 }
 
 // Records that the rider owes this and returns once it is saved; the provider is called in the background, so a slow
-// provider never holds up ride's outbox. Idempotent: a ride has one charge, and a repeat keeps the first.
+// provider never holds up ride's outbox. Idempotent per ride: an identical repeat succeeds; conflicting rider, driver,
+// kind, amount or currency is FAILED_PRECONDITION and never changes the original charge.
 type ChargeRideRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
@@ -536,8 +537,11 @@ func (x *Charge) GetRefunds() []*Refund {
 // The rider tries a declined charge again, usually after SetPaymentMethod. Idempotent: a pending or captured charge
 // is left as it is. NOT_FOUND: no charge on this ride for this rider.
 type RetryChargeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	RideId string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
+	// Required UUID, generated once per intentional retry. Replaying it never starts another provider attempt, even
+	// if the first retry has since been declined. A new card/retry intent needs a new request_id.
+	RequestId     string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -575,6 +579,13 @@ func (*RetryChargeRequest) Descriptor() ([]byte, []int) {
 func (x *RetryChargeRequest) GetRideId() string {
 	if x != nil {
 		return x.RideId
+	}
+	return ""
+}
+
+func (x *RetryChargeRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
 	}
 	return ""
 }
@@ -1001,9 +1012,11 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"\x06amount\x18\x05 \x01(\v2\x11.payment.v1.MoneyR\x06amount\x12%\n" +
 	"\x0edecline_reason\x18\x06 \x01(\tR\rdeclineReason\x12'\n" +
 	"\x0frefunded_amount\x18\a \x01(\x03R\x0erefundedAmount\x12,\n" +
-	"\arefunds\x18\b \x03(\v2\x12.payment.v1.RefundR\arefunds\"-\n" +
+	"\arefunds\x18\b \x03(\v2\x12.payment.v1.RefundR\arefunds\"L\n" +
 	"\x12RetryChargeRequest\x12\x17\n" +
-	"\aride_id\x18\x01 \x01(\tR\x06rideId\"\x15\n" +
+	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\"\x15\n" +
 	"\x13RetryChargeResponse\"/\n" +
 	"\x17SetPaymentMethodRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"\x1a\n" +

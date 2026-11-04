@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -30,6 +31,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -137,13 +139,15 @@ func TestIntegration(t *testing.T) {
 	_, err = client.SetPaymentMethod(rider, &paymentv1.SetPaymentMethodRequest{})
 	wantCode(t, "empty card", err, codes.InvalidArgument)
 
-	// Happy path. Ride's at-least-once delivery may repeat the message, even with a different amount: the first stands.
+	// Happy path. Ride's at-least-once delivery may repeat the message; changed parameters are an error, never a charge.
 	setCard(provider.TokenOK)
-	for _, amount := range []int64{10_000, 10_000, 99_999} {
+	for _, amount := range []int64{10_000, 10_000} {
 		if _, err := client.ChargeRide(asRide, chargeReq(first, amount)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	_, err = client.ChargeRide(asRide, chargeReq(first, 99_999))
+	wantCode(t, "conflicting repeated charge", err, codes.FailedPrecondition)
 	if got := statusOf(first); got != paymentv1.ChargeStatus_CHARGE_STATUS_PENDING {
 		t.Fatalf("before the tick: %v", got)
 	}
@@ -531,6 +535,8 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("driver account after capture and full refund: %d, want 0", got)
 	}
 
+	testPaymentIdempotency(t, ctx, pool)
+
 	// Money at the provider equals everything captured minus everything refunded, the reconciliation a finance team runs.
 	var captured, refunded int64
 	pool.QueryRow(ctx, `SELECT COALESCE(sum(amount), 0)::bigint FROM charges WHERE status = 'captured'`).Scan(&captured)
@@ -571,7 +577,7 @@ func TestIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := goose.Down(db, "../../migrations"); err != nil {
+	if err := goose.DownTo(db, "../../migrations", 20261102100100); err != nil {
 		t.Fatalf("down over real refunds: %v", err)
 	}
 	if err := goose.Up(db, "../../migrations"); err != nil {
@@ -579,6 +585,169 @@ func TestIntegration(t *testing.T) {
 	}
 	if got := accountBalance("provider_clearing"); got != captured {
 		t.Fatalf("clearing after dropping refunds: %d, want %d", got, captured)
+	}
+}
+
+func testPaymentIdempotency(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	repo := payment.NewRepository(pool)
+	makeService := func() *payment.PaymentService {
+		return payment.NewService(repo, provider.NewPersistentFake(pool), &fakeRide{}, zap.NewNop())
+	}
+	svc := makeService()
+	in := payment.ChargeInput{RideID: uuid.NewString(), RiderID: uuid.NewString(), DriverID: uuid.NewString(), Kind: payment.KindFare, Amount: payment.Money{Amount: 10_000, Currency: "IDR"}}
+	if err := repo.SetPaymentMethod(ctx, in.RiderID, provider.TokenLostResponse); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, 6)
+	for i := range errs {
+		wg.Go(func() { errs[i] = svc.ChargeRide(ctx, in) })
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, change := range map[string]func(*payment.ChargeInput){
+		"amount":   func(x *payment.ChargeInput) { x.Amount.Amount++ },
+		"currency": func(x *payment.ChargeInput) { x.Amount.Currency = "USD" },
+		"rider":    func(x *payment.ChargeInput) { x.RiderID = uuid.NewString() },
+		"driver":   func(x *payment.ChargeInput) { x.DriverID = uuid.NewString() },
+		"kind":     func(x *payment.ChargeInput) { x.Kind = payment.KindCancellationFee },
+	} {
+		x := in
+		change(&x)
+		if err := svc.ChargeRide(ctx, x); !errors.Is(err, payment.ErrKeyReused) {
+			t.Fatalf("conflicting %s: %v", name, err)
+		}
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	} // provider took money, reply was lost
+	var id, state, token string
+	if err := pool.QueryRow(ctx, `SELECT id, status, provider_token FROM charges WHERE ride_id = $1`, in.RideID).Scan(&id, &state, &token); err != nil {
+		t.Fatal(err)
+	}
+	if state != "pending" || token != provider.TokenLostResponse {
+		t.Fatalf("unknown outcome: %s token=%s", state, token)
+	}
+	// Changing cards mustn't change the request whose outcome is unknown. A new process/provider object reads the
+	// same durable receipt and captures once, not another charge on the new card.
+	repo.SetPaymentMethod(ctx, in.RiderID, provider.TokenOK)
+	makeDue(t, pool)
+	svc = makeService()
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool.QueryRow(ctx, `SELECT status FROM charges WHERE id = $1`, id).Scan(&state)
+	if state != "captured" {
+		t.Fatalf("restart didn't recover capture: %s", state)
+	}
+	var n int
+	pool.QueryRow(ctx, `SELECT count(*) FROM fake_provider_operations WHERE kind = 'charge' AND key = $1`, id+":1").Scan(&n)
+	if n != 1 {
+		t.Fatalf("provider recorded %d charges", n)
+	}
+	pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE charge_id = $1`, id).Scan(&n)
+	if n != 3 {
+		t.Fatalf("capture posted %d entries, want 3", n)
+	}
+	if _, err := provider.NewPersistentFake(pool).Charge(ctx, provider.Request{Key: id + ":1", Token: provider.TokenOK, Amount: 10_000, Currency: "IDR"}); !errors.Is(err, provider.ErrKeyReused) {
+		t.Fatalf("provider accepted changed parameters after restart: %v", err)
+	}
+
+	// A retry key is consumed once, even if that attempt is declined before its HTTP reply is retried. Stale workers
+	// from the previous provider attempt mustn't overwrite the new attempt or post ledger entries for it.
+	in.RideID = uuid.NewString()
+	repo.SetPaymentMethod(ctx, in.RiderID, provider.TokenDeclined)
+	if err := svc.ChargeRide(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool.QueryRow(ctx, `SELECT id FROM charges WHERE ride_id = $1`, in.RideID).Scan(&id)
+	key := uuid.NewString()
+	if err := svc.RetryCharge(ctx, in.RideID, in.RiderID, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Decline(ctx, id, "stale decline", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Capture(ctx, id, "stale capture", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	} // attempt 2 is declined too
+	if err := svc.RetryCharge(ctx, in.RideID, in.RiderID, key); err != nil {
+		t.Fatal(err)
+	}
+	var attempt int
+	pool.QueryRow(ctx, `SELECT status, provider_attempt FROM charges WHERE id = $1`, id).Scan(&state, &attempt)
+	if state != "failed" || attempt != 2 {
+		t.Fatalf("replay rearmed payment: %s attempt %d", state, attempt)
+	}
+	repo.SetPaymentMethod(ctx, in.RiderID, provider.TokenOK)
+	if err := svc.RetryCharge(ctx, in.RideID, in.RiderID, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	repo.Decline(ctx, id, "stale attempt 2", 2, 1)
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool.QueryRow(ctx, `SELECT status, provider_attempt FROM charges WHERE id = $1`, id).Scan(&state, &attempt)
+	if state != "captured" || attempt != 3 {
+		t.Fatalf("intentional retry: %s attempt %d", state, attempt)
+	}
+	pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE charge_id = $1`, id).Scan(&n)
+	if n != 3 {
+		t.Fatalf("stale workers posted: %d entries", n)
+	}
+
+	// Refund idempotency survives the same kind of restart: money already returned with a lost reply must not go
+	// out again. Keep this separate from the in-memory provider's tests above.
+	in.RideID = uuid.NewString()
+	repo.SetPaymentMethod(ctx, in.RiderID, provider.TokenRefundLost)
+	if err := svc.ChargeRide(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	refund, err := svc.RefundCharge(ctx, payment.RefundInput{RideID: in.RideID, Amount: 4000, IdempotencyKey: uuid.NewString(), Reason: "restart test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool.QueryRow(ctx, `SELECT status FROM refunds WHERE id = $1`, refund.ID).Scan(&state)
+	if state != "pending" {
+		t.Fatalf("refund with lost response: %s", state)
+	}
+	pool.Exec(ctx, `UPDATE refunds SET next_attempt_at = now() WHERE id = $1`, refund.ID)
+	svc = makeService()
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool.QueryRow(ctx, `SELECT status FROM refunds WHERE id = $1`, refund.ID).Scan(&state)
+	if state != "succeeded" {
+		t.Fatalf("refund didn't recover after restart: %s", state)
+	}
+	var refunded int64
+	pool.QueryRow(ctx, `SELECT p.refunded FROM fake_provider_charges p JOIN charges c ON c.provider_ref = p.reference WHERE c.ride_id = $1`, in.RideID).Scan(&refunded)
+	if refunded != 4000 {
+		t.Fatalf("provider returned %d instead of 4000", refunded)
+	}
+	pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE refund_id = $1`, refund.ID).Scan(&n)
+	if n != 3 {
+		t.Fatalf("refund posted %d entries", n)
+	}
+	if err := svc.RetryCharge(ctx, in.RideID, in.RiderID, ""); !errors.Is(err, payment.ErrInvalidInput) {
+		t.Fatalf("missing retry key: %v", err)
 	}
 }
 
@@ -684,7 +853,18 @@ func startServer(t *testing.T, service *payment.PaymentService) paymentv1.Paymen
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	return paymentv1.NewPaymentServiceClient(conn)
+	return retryClient{paymentv1.NewPaymentServiceClient(conn)}
+}
+
+// Existing scenarios create a new retry intent per call, like a user click. Explicit keys are preserved.
+type retryClient struct{ paymentv1.PaymentServiceClient }
+
+func (c retryClient) RetryCharge(ctx context.Context, in *paymentv1.RetryChargeRequest, opts ...grpc.CallOption) (*paymentv1.RetryChargeResponse, error) {
+	if in.GetRequestId() == "" {
+		in = proto.Clone(in).(*paymentv1.RetryChargeRequest)
+		in.RequestId = uuid.NewString()
+	}
+	return c.PaymentServiceClient.RetryCharge(ctx, in, opts...)
 }
 
 // withToken signs an access token the way the user service does.

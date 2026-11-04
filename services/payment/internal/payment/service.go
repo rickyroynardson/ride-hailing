@@ -100,13 +100,13 @@ func (s *PaymentService) process(ctx context.Context, c dueCharge) (err error) {
 		// An unknown outcome is routine, not a failure of the tick: failing would slow every other charge down.
 		providerUnknown.Inc()
 		s.lg.Warn("provider outcome unknown", zap.String("charge_id", c.ID), zap.Int("attempts", c.Attempts), zap.Error(err))
-		return s.repository.Postpone(ctx, c.ID, err.Error(), backoff(c.Attempts))
+		return s.repository.Postpone(ctx, c.ID, err.Error(), backoff(c.Attempts), c.ProviderAttempt, c.Attempts)
 	case res.DeclineReason != "":
 		chargesFinished.WithLabelValues(StatusFailed).Inc()
-		return s.repository.Decline(ctx, c.ID, res.DeclineReason)
+		return s.repository.Decline(ctx, c.ID, res.DeclineReason, c.ProviderAttempt, c.Attempts)
 	default:
 		chargesFinished.WithLabelValues(StatusCaptured).Inc()
-		return s.repository.Capture(ctx, c.ID, res.Reference)
+		return s.repository.Capture(ctx, c.ID, res.Reference, c.ProviderAttempt, c.Attempts)
 	}
 }
 
@@ -175,11 +175,11 @@ func (s *PaymentService) GetCharge(ctx context.Context, rideID, userID string) (
 	return c, nil
 }
 
-func (s *PaymentService) RetryCharge(ctx context.Context, rideID, riderID string) error {
-	if !uuidPattern.MatchString(rideID) {
-		return fmt.Errorf("%w: ride_id must be a UUID", ErrInvalidInput)
+func (s *PaymentService) RetryCharge(ctx context.Context, rideID, riderID, requestID string) error {
+	if !uuidPattern.MatchString(rideID) || !uuidPattern.MatchString(requestID) {
+		return fmt.Errorf("%w: ride_id and request_id must be UUIDs", ErrInvalidInput)
 	}
-	return s.repository.RetryCharge(ctx, rideID, riderID)
+	return s.repository.RetryCharge(ctx, rideID, riderID, requestID)
 }
 
 func (s *PaymentService) SetPaymentMethod(ctx context.Context, riderID, token string) error {

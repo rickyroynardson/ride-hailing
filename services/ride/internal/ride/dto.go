@@ -3,6 +3,7 @@ package ride
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -18,6 +19,7 @@ var (
 	ErrRideNotFound = errors.New("ride not found")
 	// ErrPaymentOverdue blocks new rides until the rider settles a declined charge.
 	ErrPaymentOverdue = errors.New("rider has an unpaid ride")
+	ErrRequestReused  = errors.New("request_id was used for a different booking")
 )
 
 type Location struct {
@@ -28,6 +30,7 @@ type Location struct {
 // Ride is a ride as its rider and driver see it.
 type Ride struct {
 	ID           string
+	RequestID    string
 	Status       string
 	CancelReason string
 	DriverID     string
@@ -55,13 +58,17 @@ func (r Ride) finished() bool {
 }
 
 type CreateRideInput struct {
-	RiderID string
+	RiderID   string
+	RequestID string
 	// Pointers because proto3 reports an unset location as nil, while 0,0 is a real coordinate.
 	Pickup  *Location
 	Dropoff *Location
 }
 
 func (in CreateRideInput) Validate() error {
+	if !uuidPattern.MatchString(in.RequestID) {
+		return fmt.Errorf("%w: request_id must be a UUID", ErrInvalidInput)
+	}
 	return validateTrip(in.Pickup, in.Dropoff)
 }
 
@@ -70,7 +77,7 @@ func validateTrip(pickup, dropoff *Location) error {
 		return fmt.Errorf("%w: pickup and dropoff are required", ErrInvalidInput)
 	}
 	for _, l := range []Location{*pickup, *dropoff} {
-		if l.Lat < -90 || l.Lat > 90 || l.Lng < -180 || l.Lng > 180 {
+		if math.IsNaN(l.Lat) || math.IsNaN(l.Lng) || l.Lat < -90 || l.Lat > 90 || l.Lng < -180 || l.Lng > 180 {
 			return fmt.Errorf("%w: lat must be within ±90 and lng within ±180", ErrInvalidInput)
 		}
 	}

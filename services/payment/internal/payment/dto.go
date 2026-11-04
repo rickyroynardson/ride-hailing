@@ -14,7 +14,7 @@ var (
 	// ErrNotRefundable, ErrRefundTooLarge and ErrKeyReused are all refusals retrying won't change.
 	ErrNotRefundable  = errors.New("only a captured charge can be refunded")
 	ErrRefundTooLarge = errors.New("refund is more than what is left of the charge")
-	ErrKeyReused      = errors.New("idempotency key was used for a different refund")
+	ErrKeyReused      = errors.New("idempotency key reused with different parameters")
 )
 
 // Charge statuses and kinds, as stored.

@@ -381,11 +381,15 @@ func (x *EstimateFareResponse) GetFare() *Money {
 	return nil
 }
 
-// FAILED_PRECONDITION: the rider has an unpaid ride; they must settle it first.
+// Idempotent per authenticated rider and request_id: retries return the original ride and stored fare, even after
+// the trip ends. Reusing the key for different pickup/dropoff coordinates is FAILED_PRECONDITION.
+// FAILED_PRECONDITION: the rider has an unpaid ride; they must settle it first (does not block a replay).
 type CreateRideRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pickup        *Location              `protobuf:"bytes,1,opt,name=pickup,proto3" json:"pickup,omitempty"`
-	Dropoff       *Location              `protobuf:"bytes,2,opt,name=dropoff,proto3" json:"dropoff,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Pickup  *Location              `protobuf:"bytes,1,opt,name=pickup,proto3" json:"pickup,omitempty"`
+	Dropoff *Location              `protobuf:"bytes,2,opt,name=dropoff,proto3" json:"dropoff,omitempty"`
+	// Required UUID, generated once per booking intent. Keep it and the coordinates unchanged on every retry.
+	RequestId     string `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -434,6 +438,96 @@ func (x *CreateRideRequest) GetDropoff() *Location {
 	return nil
 }
 
+func (x *CreateRideRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+// No user ID is accepted: this only returns the authenticated caller's active trip. If a caller is both a rider and
+// a driver with active trips, their driver trip takes priority. Historical receipts are not returned.
+type GetCurrentRideRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCurrentRideRequest) Reset() {
+	*x = GetCurrentRideRequest{}
+	mi := &file_ride_v1_ride_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCurrentRideRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCurrentRideRequest) ProtoMessage() {}
+
+func (x *GetCurrentRideRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCurrentRideRequest.ProtoReflect.Descriptor instead.
+func (*GetCurrentRideRequest) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{5}
+}
+
+type GetCurrentRideResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Unset if the caller has no active trip.
+	Ride          *Ride `protobuf:"bytes,1,opt,name=ride,proto3" json:"ride,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCurrentRideResponse) Reset() {
+	*x = GetCurrentRideResponse{}
+	mi := &file_ride_v1_ride_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCurrentRideResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCurrentRideResponse) ProtoMessage() {}
+
+func (x *GetCurrentRideResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ride_v1_ride_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCurrentRideResponse.ProtoReflect.Descriptor instead.
+func (*GetCurrentRideResponse) Descriptor() ([]byte, []int) {
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GetCurrentRideResponse) GetRide() *Ride {
+	if x != nil {
+		return x.Ride
+	}
+	return nil
+}
+
 type CreateRideResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RideId        string                 `protobuf:"bytes,1,opt,name=ride_id,json=rideId,proto3" json:"ride_id,omitempty"`
@@ -444,7 +538,7 @@ type CreateRideResponse struct {
 
 func (x *CreateRideResponse) Reset() {
 	*x = CreateRideResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[5]
+	mi := &file_ride_v1_ride_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -456,7 +550,7 @@ func (x *CreateRideResponse) String() string {
 func (*CreateRideResponse) ProtoMessage() {}
 
 func (x *CreateRideResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[5]
+	mi := &file_ride_v1_ride_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -469,7 +563,7 @@ func (x *CreateRideResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRideResponse.ProtoReflect.Descriptor instead.
 func (*CreateRideResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{5}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateRideResponse) GetRideId() string {
@@ -495,7 +589,7 @@ type FilterAvailableDriversRequest struct {
 
 func (x *FilterAvailableDriversRequest) Reset() {
 	*x = FilterAvailableDriversRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[6]
+	mi := &file_ride_v1_ride_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -507,7 +601,7 @@ func (x *FilterAvailableDriversRequest) String() string {
 func (*FilterAvailableDriversRequest) ProtoMessage() {}
 
 func (x *FilterAvailableDriversRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[6]
+	mi := &file_ride_v1_ride_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -520,7 +614,7 @@ func (x *FilterAvailableDriversRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilterAvailableDriversRequest.ProtoReflect.Descriptor instead.
 func (*FilterAvailableDriversRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{6}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FilterAvailableDriversRequest) GetDriverIds() []string {
@@ -539,7 +633,7 @@ type FilterAvailableDriversResponse struct {
 
 func (x *FilterAvailableDriversResponse) Reset() {
 	*x = FilterAvailableDriversResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[7]
+	mi := &file_ride_v1_ride_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -551,7 +645,7 @@ func (x *FilterAvailableDriversResponse) String() string {
 func (*FilterAvailableDriversResponse) ProtoMessage() {}
 
 func (x *FilterAvailableDriversResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[7]
+	mi := &file_ride_v1_ride_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -564,7 +658,7 @@ func (x *FilterAvailableDriversResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilterAvailableDriversResponse.ProtoReflect.Descriptor instead.
 func (*FilterAvailableDriversResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{7}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FilterAvailableDriversResponse) GetDriverIds() []string {
@@ -587,7 +681,7 @@ type AssignDriverRequest struct {
 
 func (x *AssignDriverRequest) Reset() {
 	*x = AssignDriverRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[8]
+	mi := &file_ride_v1_ride_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -599,7 +693,7 @@ func (x *AssignDriverRequest) String() string {
 func (*AssignDriverRequest) ProtoMessage() {}
 
 func (x *AssignDriverRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[8]
+	mi := &file_ride_v1_ride_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -612,7 +706,7 @@ func (x *AssignDriverRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignDriverRequest.ProtoReflect.Descriptor instead.
 func (*AssignDriverRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{8}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AssignDriverRequest) GetRideId() string {
@@ -637,7 +731,7 @@ type AssignDriverResponse struct {
 
 func (x *AssignDriverResponse) Reset() {
 	*x = AssignDriverResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[9]
+	mi := &file_ride_v1_ride_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -649,7 +743,7 @@ func (x *AssignDriverResponse) String() string {
 func (*AssignDriverResponse) ProtoMessage() {}
 
 func (x *AssignDriverResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[9]
+	mi := &file_ride_v1_ride_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -662,7 +756,7 @@ func (x *AssignDriverResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignDriverResponse.ProtoReflect.Descriptor instead.
 func (*AssignDriverResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{9}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{11}
 }
 
 // Ends a requested ride as cancelled with reason no_driver. Idempotent: an already cancelled ride succeeds.
@@ -676,7 +770,7 @@ type MarkNoDriverRequest struct {
 
 func (x *MarkNoDriverRequest) Reset() {
 	*x = MarkNoDriverRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[10]
+	mi := &file_ride_v1_ride_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -688,7 +782,7 @@ func (x *MarkNoDriverRequest) String() string {
 func (*MarkNoDriverRequest) ProtoMessage() {}
 
 func (x *MarkNoDriverRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[10]
+	mi := &file_ride_v1_ride_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -701,7 +795,7 @@ func (x *MarkNoDriverRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkNoDriverRequest.ProtoReflect.Descriptor instead.
 func (*MarkNoDriverRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{10}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *MarkNoDriverRequest) GetRideId() string {
@@ -719,7 +813,7 @@ type MarkNoDriverResponse struct {
 
 func (x *MarkNoDriverResponse) Reset() {
 	*x = MarkNoDriverResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[11]
+	mi := &file_ride_v1_ride_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -731,7 +825,7 @@ func (x *MarkNoDriverResponse) String() string {
 func (*MarkNoDriverResponse) ProtoMessage() {}
 
 func (x *MarkNoDriverResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[11]
+	mi := &file_ride_v1_ride_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -744,7 +838,7 @@ func (x *MarkNoDriverResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkNoDriverResponse.ProtoReflect.Descriptor instead.
 func (*MarkNoDriverResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{11}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{13}
 }
 
 // The rider cancels their ride before the trip starts. Idempotent: an already cancelled ride succeeds.
@@ -758,7 +852,7 @@ type CancelRideRequest struct {
 
 func (x *CancelRideRequest) Reset() {
 	*x = CancelRideRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[12]
+	mi := &file_ride_v1_ride_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -770,7 +864,7 @@ func (x *CancelRideRequest) String() string {
 func (*CancelRideRequest) ProtoMessage() {}
 
 func (x *CancelRideRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[12]
+	mi := &file_ride_v1_ride_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -783,7 +877,7 @@ func (x *CancelRideRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRideRequest.ProtoReflect.Descriptor instead.
 func (*CancelRideRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{12}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CancelRideRequest) GetRideId() string {
@@ -801,7 +895,7 @@ type CancelRideResponse struct {
 
 func (x *CancelRideResponse) Reset() {
 	*x = CancelRideResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[13]
+	mi := &file_ride_v1_ride_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +907,7 @@ func (x *CancelRideResponse) String() string {
 func (*CancelRideResponse) ProtoMessage() {}
 
 func (x *CancelRideResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[13]
+	mi := &file_ride_v1_ride_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +920,7 @@ func (x *CancelRideResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRideResponse.ProtoReflect.Descriptor instead.
 func (*CancelRideResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{13}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{15}
 }
 
 // The ride's driver picked the rider up: accepted → in_progress. Idempotent, also once the trip has completed.
@@ -840,7 +934,7 @@ type StartRideRequest struct {
 
 func (x *StartRideRequest) Reset() {
 	*x = StartRideRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[14]
+	mi := &file_ride_v1_ride_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -852,7 +946,7 @@ func (x *StartRideRequest) String() string {
 func (*StartRideRequest) ProtoMessage() {}
 
 func (x *StartRideRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[14]
+	mi := &file_ride_v1_ride_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -865,7 +959,7 @@ func (x *StartRideRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRideRequest.ProtoReflect.Descriptor instead.
 func (*StartRideRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{14}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *StartRideRequest) GetRideId() string {
@@ -883,7 +977,7 @@ type StartRideResponse struct {
 
 func (x *StartRideResponse) Reset() {
 	*x = StartRideResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[15]
+	mi := &file_ride_v1_ride_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -895,7 +989,7 @@ func (x *StartRideResponse) String() string {
 func (*StartRideResponse) ProtoMessage() {}
 
 func (x *StartRideResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[15]
+	mi := &file_ride_v1_ride_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -908,7 +1002,7 @@ func (x *StartRideResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRideResponse.ProtoReflect.Descriptor instead.
 func (*StartRideResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{15}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{17}
 }
 
 // The ride's driver dropped the rider off: in_progress → completed. Idempotent.
@@ -922,7 +1016,7 @@ type CompleteRideRequest struct {
 
 func (x *CompleteRideRequest) Reset() {
 	*x = CompleteRideRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[16]
+	mi := &file_ride_v1_ride_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -934,7 +1028,7 @@ func (x *CompleteRideRequest) String() string {
 func (*CompleteRideRequest) ProtoMessage() {}
 
 func (x *CompleteRideRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[16]
+	mi := &file_ride_v1_ride_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -947,7 +1041,7 @@ func (x *CompleteRideRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRideRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRideRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{16}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CompleteRideRequest) GetRideId() string {
@@ -965,7 +1059,7 @@ type CompleteRideResponse struct {
 
 func (x *CompleteRideResponse) Reset() {
 	*x = CompleteRideResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[17]
+	mi := &file_ride_v1_ride_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -977,7 +1071,7 @@ func (x *CompleteRideResponse) String() string {
 func (*CompleteRideResponse) ProtoMessage() {}
 
 func (x *CompleteRideResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[17]
+	mi := &file_ride_v1_ride_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -990,7 +1084,7 @@ func (x *CompleteRideResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRideResponse.ProtoReflect.Descriptor instead.
 func (*CompleteRideResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{17}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{19}
 }
 
 // Payment reports how the ride's charge ended. Idempotent, and PAID is final: a late FAILED can't undo it.
@@ -1005,7 +1099,7 @@ type RecordPaymentRequest struct {
 
 func (x *RecordPaymentRequest) Reset() {
 	*x = RecordPaymentRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[18]
+	mi := &file_ride_v1_ride_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1111,7 @@ func (x *RecordPaymentRequest) String() string {
 func (*RecordPaymentRequest) ProtoMessage() {}
 
 func (x *RecordPaymentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[18]
+	mi := &file_ride_v1_ride_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1124,7 @@ func (x *RecordPaymentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordPaymentRequest.ProtoReflect.Descriptor instead.
 func (*RecordPaymentRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{18}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RecordPaymentRequest) GetRideId() string {
@@ -1055,7 +1149,7 @@ type RecordPaymentResponse struct {
 
 func (x *RecordPaymentResponse) Reset() {
 	*x = RecordPaymentResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[19]
+	mi := &file_ride_v1_ride_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1067,7 +1161,7 @@ func (x *RecordPaymentResponse) String() string {
 func (*RecordPaymentResponse) ProtoMessage() {}
 
 func (x *RecordPaymentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[19]
+	mi := &file_ride_v1_ride_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1080,7 +1174,7 @@ func (x *RecordPaymentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordPaymentResponse.ProtoReflect.Descriptor instead.
 func (*RecordPaymentResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{19}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{21}
 }
 
 type WatchRideRequest struct {
@@ -1092,7 +1186,7 @@ type WatchRideRequest struct {
 
 func (x *WatchRideRequest) Reset() {
 	*x = WatchRideRequest{}
-	mi := &file_ride_v1_ride_proto_msgTypes[20]
+	mi := &file_ride_v1_ride_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1104,7 +1198,7 @@ func (x *WatchRideRequest) String() string {
 func (*WatchRideRequest) ProtoMessage() {}
 
 func (x *WatchRideRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[20]
+	mi := &file_ride_v1_ride_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1117,7 +1211,7 @@ func (x *WatchRideRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchRideRequest.ProtoReflect.Descriptor instead.
 func (*WatchRideRequest) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{20}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *WatchRideRequest) GetRideId() string {
@@ -1136,7 +1230,7 @@ type WatchRideResponse struct {
 
 func (x *WatchRideResponse) Reset() {
 	*x = WatchRideResponse{}
-	mi := &file_ride_v1_ride_proto_msgTypes[21]
+	mi := &file_ride_v1_ride_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1148,7 +1242,7 @@ func (x *WatchRideResponse) String() string {
 func (*WatchRideResponse) ProtoMessage() {}
 
 func (x *WatchRideResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[21]
+	mi := &file_ride_v1_ride_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1161,7 +1255,7 @@ func (x *WatchRideResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchRideResponse.ProtoReflect.Descriptor instead.
 func (*WatchRideResponse) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{21}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *WatchRideResponse) GetRide() *Ride {
@@ -1185,13 +1279,15 @@ type Ride struct {
 	StartedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	CompletedAt    *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
 	Fare           *Money                 `protobuf:"bytes,12,opt,name=fare,proto3" json:"fare,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The original rider-scoped booking key, empty on legacy rides.
+	RequestId     string `protobuf:"bytes,13,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Ride) Reset() {
 	*x = Ride{}
-	mi := &file_ride_v1_ride_proto_msgTypes[22]
+	mi := &file_ride_v1_ride_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1203,7 +1299,7 @@ func (x *Ride) String() string {
 func (*Ride) ProtoMessage() {}
 
 func (x *Ride) ProtoReflect() protoreflect.Message {
-	mi := &file_ride_v1_ride_proto_msgTypes[22]
+	mi := &file_ride_v1_ride_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1216,7 +1312,7 @@ func (x *Ride) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ride.ProtoReflect.Descriptor instead.
 func (*Ride) Descriptor() ([]byte, []int) {
-	return file_ride_v1_ride_proto_rawDescGZIP(), []int{22}
+	return file_ride_v1_ride_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Ride) GetRideId() string {
@@ -1303,6 +1399,13 @@ func (x *Ride) GetFare() *Money {
 	return nil
 }
 
+func (x *Ride) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 var File_ride_v1_ride_proto protoreflect.FileDescriptor
 
 const file_ride_v1_ride_proto_rawDesc = "" +
@@ -1318,10 +1421,15 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\x06pickup\x18\x01 \x01(\v2\x11.ride.v1.LocationR\x06pickup\x12+\n" +
 	"\adropoff\x18\x02 \x01(\v2\x11.ride.v1.LocationR\adropoff\":\n" +
 	"\x14EstimateFareResponse\x12\"\n" +
-	"\x04fare\x18\x01 \x01(\v2\x0e.ride.v1.MoneyR\x04fare\"k\n" +
+	"\x04fare\x18\x01 \x01(\v2\x0e.ride.v1.MoneyR\x04fare\"\x8a\x01\n" +
 	"\x11CreateRideRequest\x12)\n" +
 	"\x06pickup\x18\x01 \x01(\v2\x11.ride.v1.LocationR\x06pickup\x12+\n" +
-	"\adropoff\x18\x02 \x01(\v2\x11.ride.v1.LocationR\adropoff\"Q\n" +
+	"\adropoff\x18\x02 \x01(\v2\x11.ride.v1.LocationR\adropoff\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\"\x17\n" +
+	"\x15GetCurrentRideRequest\";\n" +
+	"\x16GetCurrentRideResponse\x12!\n" +
+	"\x04ride\x18\x01 \x01(\v2\r.ride.v1.RideR\x04ride\"Q\n" +
 	"\x12CreateRideResponse\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12\"\n" +
 	"\x04fare\x18\x02 \x01(\v2\x0e.ride.v1.MoneyR\x04fare\">\n" +
@@ -1354,7 +1462,7 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\x10WatchRideRequest\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\"6\n" +
 	"\x11WatchRideResponse\x12!\n" +
-	"\x04ride\x18\x01 \x01(\v2\r.ride.v1.RideR\x04ride\"\xd3\x04\n" +
+	"\x04ride\x18\x01 \x01(\v2\r.ride.v1.RideR\x04ride\"\xf2\x04\n" +
 	"\x04Ride\x12\x17\n" +
 	"\aride_id\x18\x01 \x01(\tR\x06rideId\x12+\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x13.ride.v1.RideStatusR\x06status\x12:\n" +
@@ -1370,7 +1478,9 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"started_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12=\n" +
 	"\fcompleted_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12\"\n" +
-	"\x04fare\x18\f \x01(\v2\x0e.ride.v1.MoneyR\x04fare*g\n" +
+	"\x04fare\x18\f \x01(\v2\x0e.ride.v1.MoneyR\x04fare\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\r \x01(\tR\trequestId*g\n" +
 	"\x0ePaymentOutcome\x12\x1f\n" +
 	"\x1bPAYMENT_OUTCOME_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PAYMENT_OUTCOME_PAID\x10\x01\x12\x1a\n" +
@@ -1386,8 +1496,9 @@ const file_ride_v1_ride_proto_rawDesc = "" +
 	"\fCancelReason\x12\x1d\n" +
 	"\x19CANCEL_REASON_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13CANCEL_REASON_RIDER\x10\x01\x12\x1b\n" +
-	"\x17CANCEL_REASON_NO_DRIVER\x10\x022\xe2\a\n" +
-	"\vRideService\x12j\n" +
+	"\x17CANCEL_REASON_NO_DRIVER\x10\x022\xd0\b\n" +
+	"\vRideService\x12l\n" +
+	"\x0eGetCurrentRide\x12\x1e.ride.v1.GetCurrentRideRequest\x1a\x1f.ride.v1.GetCurrentRideResponse\"\x19\x82\xd3\xe4\x93\x02\x13\x12\x11/v1/rides/current\x12j\n" +
 	"\fEstimateFare\x12\x1c.ride.v1.EstimateFareRequest\x1a\x1d.ride.v1.EstimateFareResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/fares:estimate\x12[\n" +
 	"\n" +
 	"CreateRide\x12\x1a.ride.v1.CreateRideRequest\x1a\x1b.ride.v1.CreateRideResponse\"\x14\x82\xd3\xe4\x93\x02\x0e:\x01*\"\t/v1/rides\x12i\n" +
@@ -1415,7 +1526,7 @@ func file_ride_v1_ride_proto_rawDescGZIP() []byte {
 }
 
 var file_ride_v1_ride_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_ride_v1_ride_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_ride_v1_ride_proto_goTypes = []any{
 	(PaymentOutcome)(0),                    // 0: ride.v1.PaymentOutcome
 	(RideStatus)(0),                        // 1: ride.v1.RideStatus
@@ -1425,25 +1536,27 @@ var file_ride_v1_ride_proto_goTypes = []any{
 	(*EstimateFareRequest)(nil),            // 5: ride.v1.EstimateFareRequest
 	(*EstimateFareResponse)(nil),           // 6: ride.v1.EstimateFareResponse
 	(*CreateRideRequest)(nil),              // 7: ride.v1.CreateRideRequest
-	(*CreateRideResponse)(nil),             // 8: ride.v1.CreateRideResponse
-	(*FilterAvailableDriversRequest)(nil),  // 9: ride.v1.FilterAvailableDriversRequest
-	(*FilterAvailableDriversResponse)(nil), // 10: ride.v1.FilterAvailableDriversResponse
-	(*AssignDriverRequest)(nil),            // 11: ride.v1.AssignDriverRequest
-	(*AssignDriverResponse)(nil),           // 12: ride.v1.AssignDriverResponse
-	(*MarkNoDriverRequest)(nil),            // 13: ride.v1.MarkNoDriverRequest
-	(*MarkNoDriverResponse)(nil),           // 14: ride.v1.MarkNoDriverResponse
-	(*CancelRideRequest)(nil),              // 15: ride.v1.CancelRideRequest
-	(*CancelRideResponse)(nil),             // 16: ride.v1.CancelRideResponse
-	(*StartRideRequest)(nil),               // 17: ride.v1.StartRideRequest
-	(*StartRideResponse)(nil),              // 18: ride.v1.StartRideResponse
-	(*CompleteRideRequest)(nil),            // 19: ride.v1.CompleteRideRequest
-	(*CompleteRideResponse)(nil),           // 20: ride.v1.CompleteRideResponse
-	(*RecordPaymentRequest)(nil),           // 21: ride.v1.RecordPaymentRequest
-	(*RecordPaymentResponse)(nil),          // 22: ride.v1.RecordPaymentResponse
-	(*WatchRideRequest)(nil),               // 23: ride.v1.WatchRideRequest
-	(*WatchRideResponse)(nil),              // 24: ride.v1.WatchRideResponse
-	(*Ride)(nil),                           // 25: ride.v1.Ride
-	(*timestamppb.Timestamp)(nil),          // 26: google.protobuf.Timestamp
+	(*GetCurrentRideRequest)(nil),          // 8: ride.v1.GetCurrentRideRequest
+	(*GetCurrentRideResponse)(nil),         // 9: ride.v1.GetCurrentRideResponse
+	(*CreateRideResponse)(nil),             // 10: ride.v1.CreateRideResponse
+	(*FilterAvailableDriversRequest)(nil),  // 11: ride.v1.FilterAvailableDriversRequest
+	(*FilterAvailableDriversResponse)(nil), // 12: ride.v1.FilterAvailableDriversResponse
+	(*AssignDriverRequest)(nil),            // 13: ride.v1.AssignDriverRequest
+	(*AssignDriverResponse)(nil),           // 14: ride.v1.AssignDriverResponse
+	(*MarkNoDriverRequest)(nil),            // 15: ride.v1.MarkNoDriverRequest
+	(*MarkNoDriverResponse)(nil),           // 16: ride.v1.MarkNoDriverResponse
+	(*CancelRideRequest)(nil),              // 17: ride.v1.CancelRideRequest
+	(*CancelRideResponse)(nil),             // 18: ride.v1.CancelRideResponse
+	(*StartRideRequest)(nil),               // 19: ride.v1.StartRideRequest
+	(*StartRideResponse)(nil),              // 20: ride.v1.StartRideResponse
+	(*CompleteRideRequest)(nil),            // 21: ride.v1.CompleteRideRequest
+	(*CompleteRideResponse)(nil),           // 22: ride.v1.CompleteRideResponse
+	(*RecordPaymentRequest)(nil),           // 23: ride.v1.RecordPaymentRequest
+	(*RecordPaymentResponse)(nil),          // 24: ride.v1.RecordPaymentResponse
+	(*WatchRideRequest)(nil),               // 25: ride.v1.WatchRideRequest
+	(*WatchRideResponse)(nil),              // 26: ride.v1.WatchRideResponse
+	(*Ride)(nil),                           // 27: ride.v1.Ride
+	(*timestamppb.Timestamp)(nil),          // 28: google.protobuf.Timestamp
 }
 var file_ride_v1_ride_proto_depIdxs = []int32{
 	3,  // 0: ride.v1.EstimateFareRequest.pickup:type_name -> ride.v1.Location
@@ -1451,44 +1564,47 @@ var file_ride_v1_ride_proto_depIdxs = []int32{
 	4,  // 2: ride.v1.EstimateFareResponse.fare:type_name -> ride.v1.Money
 	3,  // 3: ride.v1.CreateRideRequest.pickup:type_name -> ride.v1.Location
 	3,  // 4: ride.v1.CreateRideRequest.dropoff:type_name -> ride.v1.Location
-	4,  // 5: ride.v1.CreateRideResponse.fare:type_name -> ride.v1.Money
-	0,  // 6: ride.v1.RecordPaymentRequest.outcome:type_name -> ride.v1.PaymentOutcome
-	25, // 7: ride.v1.WatchRideResponse.ride:type_name -> ride.v1.Ride
-	1,  // 8: ride.v1.Ride.status:type_name -> ride.v1.RideStatus
-	2,  // 9: ride.v1.Ride.cancel_reason:type_name -> ride.v1.CancelReason
-	3,  // 10: ride.v1.Ride.pickup:type_name -> ride.v1.Location
-	3,  // 11: ride.v1.Ride.dropoff:type_name -> ride.v1.Location
-	3,  // 12: ride.v1.Ride.driver_location:type_name -> ride.v1.Location
-	26, // 13: ride.v1.Ride.requested_at:type_name -> google.protobuf.Timestamp
-	26, // 14: ride.v1.Ride.accepted_at:type_name -> google.protobuf.Timestamp
-	26, // 15: ride.v1.Ride.started_at:type_name -> google.protobuf.Timestamp
-	26, // 16: ride.v1.Ride.completed_at:type_name -> google.protobuf.Timestamp
-	4,  // 17: ride.v1.Ride.fare:type_name -> ride.v1.Money
-	5,  // 18: ride.v1.RideService.EstimateFare:input_type -> ride.v1.EstimateFareRequest
-	7,  // 19: ride.v1.RideService.CreateRide:input_type -> ride.v1.CreateRideRequest
-	9,  // 20: ride.v1.RideService.FilterAvailableDrivers:input_type -> ride.v1.FilterAvailableDriversRequest
-	11, // 21: ride.v1.RideService.AssignDriver:input_type -> ride.v1.AssignDriverRequest
-	13, // 22: ride.v1.RideService.MarkNoDriver:input_type -> ride.v1.MarkNoDriverRequest
-	15, // 23: ride.v1.RideService.CancelRide:input_type -> ride.v1.CancelRideRequest
-	17, // 24: ride.v1.RideService.StartRide:input_type -> ride.v1.StartRideRequest
-	19, // 25: ride.v1.RideService.CompleteRide:input_type -> ride.v1.CompleteRideRequest
-	23, // 26: ride.v1.RideService.WatchRide:input_type -> ride.v1.WatchRideRequest
-	21, // 27: ride.v1.RideService.RecordPayment:input_type -> ride.v1.RecordPaymentRequest
-	6,  // 28: ride.v1.RideService.EstimateFare:output_type -> ride.v1.EstimateFareResponse
-	8,  // 29: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
-	10, // 30: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
-	12, // 31: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
-	14, // 32: ride.v1.RideService.MarkNoDriver:output_type -> ride.v1.MarkNoDriverResponse
-	16, // 33: ride.v1.RideService.CancelRide:output_type -> ride.v1.CancelRideResponse
-	18, // 34: ride.v1.RideService.StartRide:output_type -> ride.v1.StartRideResponse
-	20, // 35: ride.v1.RideService.CompleteRide:output_type -> ride.v1.CompleteRideResponse
-	24, // 36: ride.v1.RideService.WatchRide:output_type -> ride.v1.WatchRideResponse
-	22, // 37: ride.v1.RideService.RecordPayment:output_type -> ride.v1.RecordPaymentResponse
-	28, // [28:38] is the sub-list for method output_type
-	18, // [18:28] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	27, // 5: ride.v1.GetCurrentRideResponse.ride:type_name -> ride.v1.Ride
+	4,  // 6: ride.v1.CreateRideResponse.fare:type_name -> ride.v1.Money
+	0,  // 7: ride.v1.RecordPaymentRequest.outcome:type_name -> ride.v1.PaymentOutcome
+	27, // 8: ride.v1.WatchRideResponse.ride:type_name -> ride.v1.Ride
+	1,  // 9: ride.v1.Ride.status:type_name -> ride.v1.RideStatus
+	2,  // 10: ride.v1.Ride.cancel_reason:type_name -> ride.v1.CancelReason
+	3,  // 11: ride.v1.Ride.pickup:type_name -> ride.v1.Location
+	3,  // 12: ride.v1.Ride.dropoff:type_name -> ride.v1.Location
+	3,  // 13: ride.v1.Ride.driver_location:type_name -> ride.v1.Location
+	28, // 14: ride.v1.Ride.requested_at:type_name -> google.protobuf.Timestamp
+	28, // 15: ride.v1.Ride.accepted_at:type_name -> google.protobuf.Timestamp
+	28, // 16: ride.v1.Ride.started_at:type_name -> google.protobuf.Timestamp
+	28, // 17: ride.v1.Ride.completed_at:type_name -> google.protobuf.Timestamp
+	4,  // 18: ride.v1.Ride.fare:type_name -> ride.v1.Money
+	8,  // 19: ride.v1.RideService.GetCurrentRide:input_type -> ride.v1.GetCurrentRideRequest
+	5,  // 20: ride.v1.RideService.EstimateFare:input_type -> ride.v1.EstimateFareRequest
+	7,  // 21: ride.v1.RideService.CreateRide:input_type -> ride.v1.CreateRideRequest
+	11, // 22: ride.v1.RideService.FilterAvailableDrivers:input_type -> ride.v1.FilterAvailableDriversRequest
+	13, // 23: ride.v1.RideService.AssignDriver:input_type -> ride.v1.AssignDriverRequest
+	15, // 24: ride.v1.RideService.MarkNoDriver:input_type -> ride.v1.MarkNoDriverRequest
+	17, // 25: ride.v1.RideService.CancelRide:input_type -> ride.v1.CancelRideRequest
+	19, // 26: ride.v1.RideService.StartRide:input_type -> ride.v1.StartRideRequest
+	21, // 27: ride.v1.RideService.CompleteRide:input_type -> ride.v1.CompleteRideRequest
+	25, // 28: ride.v1.RideService.WatchRide:input_type -> ride.v1.WatchRideRequest
+	23, // 29: ride.v1.RideService.RecordPayment:input_type -> ride.v1.RecordPaymentRequest
+	9,  // 30: ride.v1.RideService.GetCurrentRide:output_type -> ride.v1.GetCurrentRideResponse
+	6,  // 31: ride.v1.RideService.EstimateFare:output_type -> ride.v1.EstimateFareResponse
+	10, // 32: ride.v1.RideService.CreateRide:output_type -> ride.v1.CreateRideResponse
+	12, // 33: ride.v1.RideService.FilterAvailableDrivers:output_type -> ride.v1.FilterAvailableDriversResponse
+	14, // 34: ride.v1.RideService.AssignDriver:output_type -> ride.v1.AssignDriverResponse
+	16, // 35: ride.v1.RideService.MarkNoDriver:output_type -> ride.v1.MarkNoDriverResponse
+	18, // 36: ride.v1.RideService.CancelRide:output_type -> ride.v1.CancelRideResponse
+	20, // 37: ride.v1.RideService.StartRide:output_type -> ride.v1.StartRideResponse
+	22, // 38: ride.v1.RideService.CompleteRide:output_type -> ride.v1.CompleteRideResponse
+	26, // 39: ride.v1.RideService.WatchRide:output_type -> ride.v1.WatchRideResponse
+	24, // 40: ride.v1.RideService.RecordPayment:output_type -> ride.v1.RecordPaymentResponse
+	30, // [30:41] is the sub-list for method output_type
+	19, // [19:30] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_ride_v1_ride_proto_init() }
@@ -1502,7 +1618,7 @@ func file_ride_v1_ride_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ride_v1_ride_proto_rawDesc), len(file_ride_v1_ride_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

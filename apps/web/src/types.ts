@@ -14,6 +14,7 @@ export interface Profile { user: User; driverProfile?: DriverProfile | null }
 export type RideStatus = 'RIDE_STATUS_REQUESTED' | 'RIDE_STATUS_ACCEPTED' | 'RIDE_STATUS_IN_PROGRESS' | 'RIDE_STATUS_COMPLETED' | 'RIDE_STATUS_CANCELLED'
 export interface Ride {
   rideId: string
+  requestId?: string
   status: RideStatus
   pickup: Point
   dropoff: Point

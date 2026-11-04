@@ -21,7 +21,7 @@ const commissionPercent = 20
 
 // split divides a charge between platform and driver. Rounding favours the driver, and nothing is lost.
 func split(amount int64) (platform, driver int64) {
-	platform = amount * commissionPercent / 100
+	platform = amount/100*commissionPercent + amount%100*commissionPercent/100
 	return platform, amount - platform
 }
 
@@ -42,13 +42,23 @@ func NewRepository(dbpool *pgxpool.Pool) *PaymentRepository {
 	return &PaymentRepository{DB: dbpool}
 }
 
-// CreateCharge records a charge. A ride has one: a repeat, however it differs, keeps the first.
+// CreateCharge records one charge per ride. A conflicting duplicate is an error, not a silent success. The INSERT
+// waits for any racing insert, then a separate READ COMMITTED statement sees and compares the committed winner.
 func (r *PaymentRepository) CreateCharge(ctx context.Context, in ChargeInput, traceParent string) error {
-	_, err := r.DB.Exec(ctx,
+	tag, err := r.DB.Exec(ctx,
 		`INSERT INTO charges(ride_id, rider_id, driver_id, kind, amount, currency, trace_parent)
 		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '')) ON CONFLICT (ride_id) DO NOTHING`,
 		in.RideID, in.RiderID, in.DriverID, in.Kind, in.Amount.Amount, in.Amount.Currency, traceParent,
 	)
+	if err != nil || tag.RowsAffected() == 1 {
+		return err
+	}
+	var same bool
+	err = r.DB.QueryRow(ctx, `SELECT rider_id = $2::uuid AND driver_id = $3::uuid AND kind = $4 AND amount = $5 AND currency = $6
+		FROM charges WHERE ride_id = $1`, in.RideID, in.RiderID, in.DriverID, in.Kind, in.Amount.Amount, in.Amount.Currency).Scan(&same)
+	if err == nil && !same {
+		return ErrKeyReused
+	}
 	return err
 }
 
@@ -71,12 +81,13 @@ func (r *PaymentRepository) ClaimDue(ctx context.Context, limit int, lease time.
 			SELECT id FROM charges WHERE status = 'pending' AND next_attempt_at <= now()
 			ORDER BY next_attempt_at LIMIT $1 FOR UPDATE SKIP LOCKED
 		), claimed AS (
-			UPDATE charges c SET next_attempt_at = now() + make_interval(secs => $2), attempts = c.attempts + 1
+			UPDATE charges c SET next_attempt_at = now() + make_interval(secs => $2), attempts = c.attempts + 1,
+			provider_token = COALESCE(c.provider_token, (SELECT token FROM payment_methods WHERE rider_id = c.rider_id), '')
 			FROM due WHERE c.id = due.id
-			RETURNING c.id, c.ride_id, c.rider_id, c.amount, c.currency, c.provider_attempt, c.attempts, c.trace_parent
+			RETURNING c.id, c.ride_id, c.amount, c.currency, c.provider_attempt, c.attempts, c.trace_parent, c.provider_token
 		)
-		SELECT c.id, c.ride_id, c.amount, c.currency, c.provider_attempt, c.attempts, COALESCE(m.token, ''), COALESCE(c.trace_parent, '')
-		FROM claimed c LEFT JOIN payment_methods m ON m.rider_id = c.rider_id`,
+		SELECT c.id, c.ride_id, c.amount, c.currency, c.provider_attempt, c.attempts, c.provider_token, COALESCE(c.trace_parent, '')
+		FROM claimed c`,
 		limit, lease.Seconds())
 	if err != nil {
 		return nil, err
@@ -90,15 +101,16 @@ func (r *PaymentRepository) ClaimDue(ctx context.Context, limit int, lease time.
 
 // Capture marks a pending charge paid and posts it to the ledger, atomically: money the provider took is either in
 // the ledger or still pending, which the next attempt repeats. The status guard and the ledger's uniqueness keep a
-// second worker from posting it twice.
-func (r *PaymentRepository) Capture(ctx context.Context, chargeID, providerRef string) error {
+// second worker from posting it twice. (provider_attempt, attempts) fences the claim: an old worker may still get a
+// provider response, but cannot checkpoint a newer claim, even within the same logical provider attempt.
+func (r *PaymentRepository) Capture(ctx context.Context, chargeID, providerRef string, attempt, claim int) error {
 	return pgx.BeginFunc(ctx, r.DB, func(tx pgx.Tx) error {
 		var driverID, currency string
 		var amount int64
 		err := tx.QueryRow(ctx,
 			`UPDATE charges SET status = 'captured', provider_ref = $2, last_error = NULL, updated_at = now()
-			WHERE id = $1 AND status = 'pending' RETURNING driver_id, amount, currency`,
-			chargeID, providerRef,
+			WHERE id = $1 AND status = 'pending' AND provider_attempt = $3 AND attempts = $4 RETURNING driver_id, amount, currency`,
+			chargeID, providerRef, attempt, claim,
 		).Scan(&driverID, &amount, &currency)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -138,21 +150,21 @@ func post(ctx context.Context, tx pgx.Tx, chargeID string, refundID *string, cur
 }
 
 // Decline ends a pending charge as failed: the provider gave a definite no, so no money moved.
-func (r *PaymentRepository) Decline(ctx context.Context, chargeID, reason string) error {
+func (r *PaymentRepository) Decline(ctx context.Context, chargeID, reason string, attempt, claim int) error {
 	_, err := r.DB.Exec(ctx,
 		`UPDATE charges SET status = 'failed', decline_reason = $2, last_error = NULL, updated_at = now()
-		WHERE id = $1 AND status = 'pending'`,
-		chargeID, reason,
+		WHERE id = $1 AND status = 'pending' AND provider_attempt = $3 AND attempts = $4`,
+		chargeID, reason, attempt, claim,
 	)
 	return err
 }
 
 // Postpone leaves a charge pending after an unknown outcome, to try again with the same key after wait.
-func (r *PaymentRepository) Postpone(ctx context.Context, chargeID, lastError string, wait time.Duration) error {
+func (r *PaymentRepository) Postpone(ctx context.Context, chargeID, lastError string, wait time.Duration, attempt, claim int) error {
 	_, err := r.DB.Exec(ctx,
 		`UPDATE charges SET next_attempt_at = now() + make_interval(secs => $3), last_error = $2, updated_at = now()
-		WHERE id = $1 AND status = 'pending'`,
-		chargeID, lastError, wait.Seconds(),
+		WHERE id = $1 AND status = 'pending' AND provider_attempt = $4 AND attempts = $5`,
+		chargeID, lastError, wait.Seconds(), attempt, claim,
 	)
 	return err
 }
@@ -203,25 +215,24 @@ func (r *PaymentRepository) GetCharge(ctx context.Context, rideID, userID string
 
 // RetryCharge puts the rider's declined charge back in the queue, as a new attempt at the provider. A charge that
 // isn't declined is left as it is.
-func (r *PaymentRepository) RetryCharge(ctx context.Context, rideID, riderID string) error {
-	tag, err := r.DB.Exec(ctx,
-		`UPDATE charges SET status = 'pending', decline_reason = NULL, provider_attempt = provider_attempt + 1,
-		attempts = 0, next_attempt_at = now(), ride_notified_at = NULL, updated_at = now()
-		WHERE ride_id = $1 AND rider_id = $2 AND status = 'failed'`,
-		rideID, riderID,
-	)
-	if err != nil || tag.RowsAffected() == 1 {
+func (r *PaymentRepository) RetryCharge(ctx context.Context, rideID, riderID, requestID string) error {
+	return pgx.BeginFunc(ctx, r.DB, func(tx pgx.Tx) error {
+		var id string
+		if err := tx.QueryRow(ctx, `SELECT id FROM charges WHERE ride_id = $1 AND rider_id = $2 FOR UPDATE`, rideID, riderID).Scan(&id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrChargeNotFound
+			}
+			return err
+		}
+		tag, err := tx.Exec(ctx, `INSERT INTO charge_retry_requests(charge_id, request_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, id, requestID)
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE charges SET status = 'pending', decline_reason = NULL, provider_attempt = provider_attempt + 1,
+			provider_token = NULL, attempts = 0, next_attempt_at = now(), ride_notified_at = NULL, updated_at = now()
+			WHERE id = $1 AND status = 'failed'`, id)
 		return err
-	}
-
-	var exists bool
-	if err := r.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM charges WHERE ride_id = $1 AND rider_id = $2)`, rideID, riderID).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return ErrChargeNotFound
-	}
-	return nil
+	})
 }
 
 func (r *PaymentRepository) SetPaymentMethod(ctx context.Context, riderID, token string) error {

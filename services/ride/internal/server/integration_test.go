@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -40,6 +41,7 @@ import (
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 const testSecret = "test-secret"
@@ -755,6 +757,108 @@ func TestIntegration(t *testing.T) {
 	if _, err := refl.Recv(); err != nil {
 		t.Fatalf("reflection without a token: %v", err)
 	}
+	testBookingRecovery(t, ctx, pool, ridev1.NewRideServiceClient(conn), service)
+}
+
+func testBookingRecovery(t *testing.T, ctx context.Context, pool *pgxpool.Pool, client ridev1.RideServiceClient, service context.Context) {
+	t.Helper()
+	const riderID, driverID = "f0000000-0000-0000-0000-000000000001", "f0000000-0000-0000-0000-000000000002"
+	rider, driver := withToken(t, ctx, riderID), withToken(t, ctx, driverID)
+	key := uuid.NewString()
+	req := &ridev1.CreateRideRequest{RequestId: key, Pickup: &ridev1.Location{Lat: 1, Lng: 2}, Dropoff: &ridev1.Location{Lat: 3, Lng: 4}}
+	_, err := client.CreateRide(rider, &ridev1.CreateRideRequest{Pickup: req.Pickup, Dropoff: req.Dropoff})
+	wantCode(t, "booking requires a request_id", err, codes.InvalidArgument)
+	_, err = client.GetCurrentRide(ctx, &ridev1.GetCurrentRideRequest{})
+	wantCode(t, "current ride requires auth", err, codes.Unauthenticated)
+	_, err = client.GetCurrentRide(service, &ridev1.GetCurrentRideRequest{})
+	wantCode(t, "current ride is not a service API", err, codes.PermissionDenied)
+
+	// Concurrent delivery and a lost reply are the same intent. All callers get the same response and one outbox row.
+	responses := make([]*ridev1.CreateRideResponse, 12)
+	errs := make([]error, len(responses))
+	var wg sync.WaitGroup
+	for i := range responses {
+		wg.Go(func() { responses[i], errs[i] = client.CreateRide(rider, req) })
+	}
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil || !proto.Equal(responses[0], responses[i]) {
+			t.Fatalf("concurrent booking %d: %v %v", i, responses[i], e)
+		}
+	}
+	id := responses[0].GetRideId()
+	var n int
+	pool.QueryRow(ctx, `SELECT count(*) FROM outbox WHERE payload->>'ride_id' = $1`, id).Scan(&n)
+	if n != 1 {
+		t.Fatalf("same booking queued %d messages", n)
+	}
+	changed := proto.Clone(req).(*ridev1.CreateRideRequest)
+	changed.Dropoff.Lat++
+	_, err = client.CreateRide(rider, changed)
+	wantCode(t, "changed payload on a booking key", err, codes.FailedPrecondition)
+
+	current := func(who context.Context) *ridev1.Ride {
+		t.Helper()
+		res, err := client.GetCurrentRide(who, &ridev1.GetCurrentRideRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.GetRide()
+	}
+	if got := current(rider); got.GetRideId() != id {
+		t.Fatalf("rider current trip: %v", got)
+	}
+	if got := current(driver); got != nil {
+		t.Fatalf("unrelated caller sees a trip: %v", got)
+	}
+	pool.Exec(ctx, `UPDATE rides SET status = 'accepted', driver_id = $2 WHERE id = $1`, id, driverID)
+	if got := current(driver); got.GetRideId() != id {
+		t.Fatalf("driver without a driver claim couldn't recover: %v", got)
+	}
+	pool.Exec(ctx, `UPDATE rides SET status = 'in_progress' WHERE id = $1`, id)
+	if got := current(driver); got.GetStatus() != ridev1.RideStatus_RIDE_STATUS_IN_PROGRESS {
+		t.Fatal(got)
+	}
+	pool.Exec(ctx, `UPDATE rides SET status = 'completed', payment_status = 'failed' WHERE id = $1`, id)
+	if got := current(rider); got != nil {
+		t.Fatalf("completed trip returned as current: %v", got)
+	}
+	replayed, err := client.CreateRide(rider, req)
+	if err != nil || !proto.Equal(replayed, responses[0]) {
+		t.Fatalf("replay after completion/payment failure: %v %v", replayed, err)
+	}
+	// Even a newly computed price must not change a replay's stored fare.
+	_, fare, err := ride.NewRepository(pool).CreateRide(ctx, ride.CreateRideInput{RiderID: riderID, RequestID: key, Pickup: &ride.Location{Lat: 1, Lng: 2}, Dropoff: &ride.Location{Lat: 3, Lng: 4}}, ride.Money{Amount: 1, Currency: "USD"})
+	if err != nil || fare.Amount != replayed.GetFare().GetAmount() || fare.Currency != "IDR" {
+		t.Fatalf("replay repriced a ride: %+v %v", fare, err)
+	}
+
+	// Keys are rider-scoped: another caller can use the same UUID without finding this rider's ride.
+	other := withToken(t, ctx, "f0000000-0000-0000-0000-000000000003")
+	otherRide, err := client.CreateRide(other, req)
+	if err != nil || otherRide.GetRideId() == id {
+		t.Fatalf("key wasn't scoped by rider: %v %v", otherRide, err)
+	}
+
+	// A failed transaction must not consume a key or leave a ride without its matching message.
+	if _, err := pool.Exec(ctx, `ALTER TABLE outbox ADD CONSTRAINT test_reject_booking CHECK (kind <> 'start_matching') NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
+	broken := withToken(t, ctx, "f0000000-0000-0000-0000-000000000004")
+	rollbackReq := proto.Clone(req).(*ridev1.CreateRideRequest)
+	rollbackReq.RequestId = uuid.NewString()
+	_, err = client.CreateRide(broken, rollbackReq)
+	wantCode(t, "outbox failure rolls back booking", err, codes.Internal)
+	pool.QueryRow(ctx, `SELECT count(*) FROM rides WHERE request_id = $1`, rollbackReq.RequestId).Scan(&n)
+	if n != 0 {
+		t.Fatal("failed outbox insert left a booking behind")
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE outbox DROP CONSTRAINT test_reject_booking`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateRide(broken, rollbackReq); err != nil {
+		t.Fatalf("retry after rollback: %v", err)
+	}
 }
 
 // testWatchRide follows rides through WatchRide. Changes reach the stream through the real trigger and listener;
@@ -1084,7 +1188,19 @@ func startServer(t *testing.T, pool *pgxpool.Pool, location locationv1.LocationS
 	}
 	t.Cleanup(func() { conn.Close() })
 
-	return ridev1.NewRideServiceClient(conn), conn
+	return bookingClient{ridev1.NewRideServiceClient(conn)}, conn
+}
+
+// Existing scenarios create a new intent each time. Explicit keys in the idempotency tests below are left intact.
+// The raw client (from conn) is used when testing the required-key validation itself.
+type bookingClient struct{ ridev1.RideServiceClient }
+
+func (c bookingClient) CreateRide(ctx context.Context, in *ridev1.CreateRideRequest, opts ...grpc.CallOption) (*ridev1.CreateRideResponse, error) {
+	if in.GetRequestId() == "" {
+		in = proto.Clone(in).(*ridev1.CreateRideRequest)
+		in.RequestId = uuid.NewString()
+	}
+	return c.RideServiceClient.CreateRide(ctx, in, opts...)
 }
 
 // withToken signs an access token the way the user service does.

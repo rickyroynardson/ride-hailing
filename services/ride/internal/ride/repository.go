@@ -22,11 +22,28 @@ func NewRepository(dbpool *pgxpool.Pool) *RideRepository {
 
 // CreateRide inserts the ride and its "start matching" outbox message in one transaction: both are saved or
 // neither is, so a ride can never exist without matching eventually hearing about it.
-// rides_one_active_per_rider makes concurrent requests from one rider fail with ErrActiveRide. A rider with an unpaid
-// ride gets ErrPaymentOverdue; this reads ride's own copy of the outcome, so booking doesn't depend on payment being up.
-func (r *RideRepository) CreateRide(ctx context.Context, in CreateRideInput, fare Money) (string, error) {
+// A transaction-scoped lock serializes bookings for this rider, including different keys. Replay is checked before
+// active-ride and payment checks, and returns the stored fare, never a newly computed one. The unique indexes remain
+// the database's final guard. An outbox failure rolls back the ride and key together, so retrying is safe.
+func (r *RideRepository) CreateRide(ctx context.Context, in CreateRideInput, fare Money) (string, Money, error) {
 	var id string
 	err := pgx.BeginFunc(ctx, r.DB, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 0))`, in.RiderID); err != nil {
+			return err
+		}
+		var pickup, dropoff Location
+		err := tx.QueryRow(ctx, `SELECT id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, fare_amount, fare_currency
+			FROM rides WHERE rider_id = $1 AND request_id = $2`, in.RiderID, in.RequestID).
+			Scan(&id, &pickup.Lat, &pickup.Lng, &dropoff.Lat, &dropoff.Lng, &fare.Amount, &fare.Currency)
+		if err == nil {
+			if pickup != *in.Pickup || dropoff != *in.Dropoff {
+				return ErrRequestReused
+			}
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		var overdue bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rides WHERE rider_id = $1 AND payment_status = 'failed')`, in.RiderID).Scan(&overdue); err != nil {
 			return err
@@ -35,9 +52,9 @@ func (r *RideRepository) CreateRide(ctx context.Context, in CreateRideInput, far
 			return ErrPaymentOverdue
 		}
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO rides(rider_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, fare_amount, fare_currency)
-			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-			in.RiderID, in.Pickup.Lat, in.Pickup.Lng, in.Dropoff.Lat, in.Dropoff.Lng, fare.Amount, fare.Currency,
+			`INSERT INTO rides(rider_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, fare_amount, fare_currency, request_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+			in.RiderID, in.Pickup.Lat, in.Pickup.Lng, in.Dropoff.Lat, in.Dropoff.Lng, fare.Amount, fare.Currency, in.RequestID,
 		).Scan(&id); err != nil {
 			return err
 		}
@@ -46,9 +63,30 @@ func (r *RideRepository) CreateRide(ctx context.Context, in CreateRideInput, far
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return "", ErrActiveRide
+		return "", Money{}, ErrActiveRide
 	}
-	return id, err
+	return id, fare, err
+}
+
+// GetCurrentRide checks both participant roles, without relying on the token's driver claim: a driver suspended
+// mid-trip still needs to recover and complete it. Prefer the driver trip if an account occupies both roles.
+func (r *RideRepository) GetCurrentRide(ctx context.Context, userID string) (*Ride, error) {
+	x := Ride{}
+	err := r.DB.QueryRow(ctx, `SELECT id, status, COALESCE(cancel_reason, ''), COALESCE(driver_id::text, ''),
+		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at, accepted_at, started_at, completed_at,
+		fare_amount, fare_currency, COALESCE(request_id::text, '') FROM rides
+		WHERE (rider_id = $1 AND status IN ('requested', 'accepted', 'in_progress'))
+		OR (driver_id = $1 AND status IN ('accepted', 'in_progress'))
+		ORDER BY (driver_id = $1) DESC NULLS LAST, created_at DESC LIMIT 1`, userID).
+		Scan(&x.ID, &x.Status, &x.CancelReason, &x.DriverID, &x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng,
+			&x.RequestedAt, &x.AcceptedAt, &x.StartedAt, &x.CompletedAt, &x.FareAmount, &x.FareCurrency, &x.RequestID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &x, nil
 }
 
 // GetRide returns the ride if userID is its rider or driver. Anyone else gets ErrRideNotFound.
@@ -57,12 +95,12 @@ func (r *RideRepository) GetRide(ctx context.Context, rideID, userID string) (Ri
 	err := r.DB.QueryRow(ctx,
 		`SELECT status, COALESCE(cancel_reason, ''), COALESCE(driver_id::text, ''),
 		pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, created_at, accepted_at, started_at, completed_at,
-		fare_amount, fare_currency
+		fare_amount, fare_currency, COALESCE(request_id::text, '')
 		FROM rides WHERE id = $1 AND (rider_id = $2 OR driver_id = $2)`,
 		rideID, userID,
 	).Scan(&x.Status, &x.CancelReason, &x.DriverID,
 		&x.Pickup.Lat, &x.Pickup.Lng, &x.Dropoff.Lat, &x.Dropoff.Lng, &x.RequestedAt, &x.AcceptedAt, &x.StartedAt, &x.CompletedAt,
-		&x.FareAmount, &x.FareCurrency)
+		&x.FareAmount, &x.FareCurrency, &x.RequestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Ride{}, ErrRideNotFound
 	}

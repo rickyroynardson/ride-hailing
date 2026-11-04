@@ -1,9 +1,11 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Keep CI available manually, but don't spend runner time on pushes or pull requests for now.
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
 
 permissions:
   contents: read

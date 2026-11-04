@@ -65,7 +65,7 @@ small { display: block; font-size: 11px; line-height: 1.6; }
 .control-panel small { margin-top: 12px; }
 .control-panel h2 { font-size: 25px; }
 .mode-switch { margin-bottom: 25px; }
-.point-input { border: 1px solid #e0e5d9; border-radius: 9px; padding: 12px; margin: 13px 0; }
+.point-input { border: 1px solid #e0e5d9; border-radius: 9px; padding: 12px; margin: 13px 0; min-width: 0; }
 .point-input.focused { border-color: #94b189; background: #f8faf3; }
 .point-label { background: transparent; padding: 0; color: #50644d; display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 500; }
 .point-label > span { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #577b51; font-size: 9px; }

@@ -22,6 +22,39 @@ func TestFakeLostResponseChargesOnce(t *testing.T) {
 	}
 }
 
+func TestFakeIdempotencyRejectsChangedParameters(t *testing.T) {
+	f, ctx := NewFake(), context.Background()
+	req := Request{Key: "stable", Token: TokenDeclined, Amount: 100, Currency: "IDR"}
+	first, err := f.Charge(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := f.Charge(ctx, req)
+	if err != nil || first != again {
+		t.Fatalf("decline wasn't cached: %v %v", again, err)
+	}
+	req.Token = TokenOK
+	if _, err := f.Charge(ctx, req); !errors.Is(err, ErrKeyReused) {
+		t.Fatalf("changed card on same key: %v", err)
+	}
+	if f.Captured() != 0 {
+		t.Fatal("conflicting retry took money")
+	}
+	req.Key = "new-intent"
+	paid, err := f.Charge(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refund := RefundRequest{Key: "refund", ChargeReference: paid.Reference, Amount: 50, Currency: "IDR"}
+	if _, err := f.Refund(ctx, refund); err != nil {
+		t.Fatal(err)
+	}
+	refund.Amount = 100
+	if _, err := f.Refund(ctx, refund); !errors.Is(err, ErrKeyReused) {
+		t.Fatalf("changed refund: %v", err)
+	}
+}
+
 func TestFakeDecline(t *testing.T) {
 	f, ctx := NewFake(), context.Background()
 	for token, reason := range map[string]string{TokenDeclined: "card_declined", "tok_nonsense": "invalid_card"} {

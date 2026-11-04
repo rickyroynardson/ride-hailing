@@ -23,6 +23,9 @@ const (
 // ErrOutcomeUnknown is what a timeout means to a payment: the charge may or may not have happened.
 var ErrOutcomeUnknown = errors.New("provider response lost; outcome unknown")
 
+// ErrKeyReused means the caller changed the parameters of an operation whose outcome may already be final.
+var ErrKeyReused = errors.New("provider idempotency key used with different parameters")
+
 type Request struct {
 	// Key makes the call idempotent: the provider charges once per key, and answers a repeat with the first result.
 	Key      string
@@ -64,21 +67,24 @@ type Provider interface {
 // enough to exercise retries, but restarting between a lost response and its retry would charge twice, and a charge
 // from before a restart can't be refunded (unknown_charge).
 type Fake struct {
-	mu      sync.Mutex
-	results map[string]Result
+	mu       sync.Mutex
+	results  map[string]Result
+	requests map[string]Request
 	// charges remembers what each Reference took, and with which card, so refunds can be checked against it.
-	charges map[string]*fakeCharge
-	refunds map[string]RefundResult
+	charges        map[string]*fakeCharge
+	refunds        map[string]RefundResult
+	refundRequests map[string]RefundRequest
 }
 
 type fakeCharge struct {
 	token    string
 	amount   int64
 	refunded int64
+	currency string
 }
 
 func NewFake() *Fake {
-	return &Fake{results: map[string]Result{}, charges: map[string]*fakeCharge{}, refunds: map[string]RefundResult{}}
+	return &Fake{results: map[string]Result{}, requests: map[string]Request{}, charges: map[string]*fakeCharge{}, refunds: map[string]RefundResult{}, refundRequests: map[string]RefundRequest{}}
 }
 
 func (f *Fake) Charge(ctx context.Context, req Request) (Result, error) {
@@ -89,22 +95,27 @@ func (f *Fake) Charge(ctx context.Context, req Request) (Result, error) {
 	defer f.mu.Unlock()
 
 	if r, ok := f.results[req.Key]; ok {
+		if f.requests[req.Key] != req {
+			return Result{}, ErrKeyReused
+		}
 		return r, nil
 	}
+	f.requests[req.Key] = req
 	switch req.Token {
 	case TokenOK, TokenLostResponse, TokenRefundRefused, TokenRefundLost, "": // a rider who never set a card uses the fake's default one
 		r := Result{Reference: "fake_" + req.Key}
 		f.results[req.Key] = r
-		f.charges[r.Reference] = &fakeCharge{token: req.Token, amount: req.Amount}
+		f.charges[r.Reference] = &fakeCharge{token: req.Token, amount: req.Amount, currency: req.Currency}
 		if req.Token == TokenLostResponse {
 			return Result{}, ErrOutcomeUnknown
 		}
 		return r, nil
 	case TokenDeclined:
-		return Result{DeclineReason: "card_declined"}, nil
+		f.results[req.Key] = Result{DeclineReason: "card_declined"}
 	default:
-		return Result{DeclineReason: "invalid_card"}, nil
+		f.results[req.Key] = Result{DeclineReason: "invalid_card"}
 	}
+	return f.results[req.Key], nil
 }
 
 // Refund gives money back, once per key. Like a real provider it refuses more than the charge took, which is what
@@ -117,16 +128,23 @@ func (f *Fake) Refund(ctx context.Context, req RefundRequest) (RefundResult, err
 	defer f.mu.Unlock()
 
 	if r, ok := f.refunds[req.Key]; ok {
+		if f.refundRequests[req.Key] != req {
+			return RefundResult{}, ErrKeyReused
+		}
 		return r, nil
 	}
+	f.refundRequests[req.Key] = req
 	c, ok := f.charges[req.ChargeReference]
 	switch {
 	case !ok:
-		return RefundResult{FailureReason: "unknown_charge"}, nil
+		f.refunds[req.Key] = RefundResult{FailureReason: "unknown_charge"}
 	case c.token == TokenRefundRefused:
-		return RefundResult{FailureReason: "refund_refused"}, nil
-	case c.refunded+req.Amount > c.amount:
-		return RefundResult{FailureReason: "exceeds_charge"}, nil
+		f.refunds[req.Key] = RefundResult{FailureReason: "refund_refused"}
+	case req.Amount <= 0 || req.Amount > c.amount-c.refunded || req.Currency != c.currency:
+		f.refunds[req.Key] = RefundResult{FailureReason: "exceeds_charge"}
+	}
+	if r, ok := f.refunds[req.Key]; ok {
+		return r, nil
 	}
 	c.refunded += req.Amount
 	r := RefundResult{Reference: "fake_refund_" + req.Key}
@@ -152,5 +170,11 @@ func (f *Fake) Refunded() int64 {
 func (f *Fake) Captured() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.results)
+	n := 0
+	for _, r := range f.results {
+		if r.Reference != "" {
+			n++
+		}
+	}
+	return n
 }
