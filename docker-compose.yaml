@@ -1,6 +1,10 @@
 services:
   postgres:
     image: postgres:latest
+    # Postgres as PID 1 reaps every orphan in the container, and treats one that exits non-zero as a crashed backend:
+    # it kills every connection and recovers. A healthcheck that times out under load is exactly that. An init takes
+    # PID 1 and reaps them instead.
+    init: true
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -121,10 +125,26 @@ services:
     environment:
       # Its own Redis database, apart from location's driver positions.
       REDIS_URL: "redis://redis:6379/1"
+      # Raise for load runs: tools/loadgen signs every user up from one IP.
+      AUTH_LIMIT_PER_MINUTE: "${AUTH_LIMIT_PER_MINUTE:-10}"
+      USER_LIMIT_PER_MINUTE: "${USER_LIMIT_PER_MINUTE:-300}"
+      ANON_LIMIT_PER_MINUTE: "${ANON_LIMIT_PER_MINUTE:-60}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
     depends_on:
       redis:
         condition: service_healthy
+
+  # Optional real client. Only its nginx proxy talks to the gateway; the browser gets no service credentials.
+  web:
+    profiles: [web]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "127.0.0.1:5173:8080"
+    depends_on:
+      gateway:
+        condition: service_started
 
   # Development-only UI: holds the JWT secret and reads every service's database. Never deploy it.
   devconsole:
@@ -135,9 +155,7 @@ services:
     ports:
       - "127.0.0.1:9000:9000"
     environment:
-      USER_ADDR: "user:50051"
-      RIDE_ADDR: "ride:50051"
-      LOCATION_ADDR: "location:50051"
+      GATEWAY_URL: "http://gateway:8000"
       MATCHING_ADDR: "matching:50051"
       PAYMENT_ADDR: "payment:50051"
       USERS_DB_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
@@ -161,6 +179,8 @@ services:
       matching:
         condition: service_started
       payment:
+        condition: service_started
+      gateway:
         condition: service_started
 
   otel-collector:

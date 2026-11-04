@@ -47,6 +47,7 @@ jobs:
           - services/payment
           - services/gateway
           - tools/devconsole
+          - tools/loadgen
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -67,9 +68,25 @@ jobs:
           if grep -E -- '--- SKIP' test.log; then echo "a test skipped; integration tests must run in CI"; exit 1; fi
           if grep -qE '^(FAIL|panic)' test.log; then exit 1; fi
 
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
   images:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: every service image builds
-        run: docker compose build
+        run: docker compose --profile web build
