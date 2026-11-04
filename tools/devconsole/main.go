@@ -1,5 +1,5 @@
 // Command devconsole is a local development UI for the ride-hailing services: it creates riders and drivers,
-// keeps their sessions, drives them from a map, and shows every gRPC call it makes plus live database state.
+// keeps their sessions, drives them through the gateway, and shows calls plus live database state.
 // Development only: it holds the JWT secret and reads every service's database directly.
 package main
 
@@ -7,6 +7,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -16,11 +17,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
-	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
-	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
-	userv1 "github.com/rickyroynardson/ride-hailing/proto/gen/user/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -65,14 +63,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	userConn := dial(env("USER_ADDR", "localhost:50051"))
 	c := &console{
 		jwtSecret:  []byte(env("JWT_SECRET", "dev-secret-change-me")),
 		jaegerURL:  env("JAEGER_UI_URL", "http://localhost:16686"),
-		auth:       userv1.NewAuthServiceClient(userConn),
-		user:       userv1.NewUserServiceClient(userConn),
-		ride:       ridev1.NewRideServiceClient(dial(env("RIDE_ADDR", "localhost:50052"))),
-		location:   locationv1.NewLocationServiceClient(dial(env("LOCATION_ADDR", "localhost:50053"))),
+		gateway:    newGatewayClient(env("GATEWAY_URL", "http://localhost:8000")),
 		matching:   matchingv1.NewMatchingServiceClient(dial(env("MATCHING_ADDR", "localhost:50054"))),
 		payment:    paymentv1.NewPaymentServiceClient(dial(env("PAYMENT_ADDR", "localhost:50055"))),
 		usersDB:    pool(env("USERS_DB_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")),
@@ -124,5 +118,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // writeErr reports a failed action to the page; the gRPC detail is also in the call log.
 func writeErr(w http.ResponseWriter, err error) {
-	writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+	code := http.StatusBadGateway
+	var e *gatewayError
+	if errors.As(err, &e) && e.httpStatus >= 400 {
+		code = e.httpStatus
+	}
+	writeJSON(w, code, map[string]string{"error": err.Error()})
 }

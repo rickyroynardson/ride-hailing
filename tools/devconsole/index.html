@@ -216,12 +216,14 @@ function renderActors() {
       status = a.online ? '<span class="pill ok">online</span>' : a.location ? '<span class="pill">offline</span>' : '<span class="pill">not placed</span>';
       if (a.lastOutcome) status += ` <span class="pill ${a.lastOutcome.startsWith('UPDATE_OUTCOME_STORED') ? 'ok' : 'warn'}">${esc(outcome(a.lastOutcome))}</span>`;
       if (a.online) actions = `<button onclick="event.stopPropagation(); goOffline('${a.id}')">Go offline</button>`;
-      actions += `<button onclick="event.stopPropagation(); checkOffer('${a.id}')" title="Calls GetOffer as this driver, like the driver app polling">GetOffer</button>`;
+      actions += `<button onclick="event.stopPropagation(); checkOffer('${a.id}')" title="One-off HTTP snapshot for debugging; offers are pushed automatically">GetOffer</button>`;
       actions += `<button onclick="event.stopPropagation(); getEarnings('${a.id}')" title="Calls GetEarnings as this driver">GetEarnings</button>`;
-      const offer = state.offers.find(o => o.driverId === a.id && o.status === 'pending');
-      const onRide = state.rides.find(r => r.driverId === a.id && ['accepted', 'in_progress'].includes(r.status));
+      const offer = a.offersConnected && a.offer;
+      const onRide = a.live && ['accepted', 'in_progress'].includes(a.live.status)
+        ? { id: a.live.rideId, status: a.live.status } : null;
       const earned = (state.earnings || []).find(e => e.driverId === a.id);
       if (earned) extra = `<div class="meta">earned Rp ${earned.amount.toLocaleString()} (ledger)</div>`;
+      extra += `<div class="meta">WatchOffers: ${a.offersConnected ? 'live via gateway' : 'reconnecting…'}</div>`;
       if (offer) {
         const left = Math.round((Date.parse(offer.expiresAt) - state.now) / 1000);
         extra += `<div class="offer" onclick="event.stopPropagation()"><b>Offer</b> for ride <span class="mono">${short(offer.rideId)}</span> · ${left > 0 ? left + 's left' : 'expiring…'}
@@ -313,7 +315,7 @@ function renderPanel() {
       const open = ui.expanded.has(key);
       return `<div class="call" onclick="toggle('${esc(key)}')">
         <div class="row"><span class="pill ${codeClass(c.code)}">${esc(c.code)}</span>
-          <span class="method">${esc(c.method.split('/').pop())} <span style="color:var(--muted)">${esc(c.method.split('/')[0])}</span></span>
+           <span class="method">${esc(c.method.split('/').pop())} <span style="color:var(--muted)">${esc(c.transport || '')} ${esc(c.httpMethod || '')} ${esc(c.path || c.method.split('/')[0])}${c.httpStatus ? ' · ' + c.httpStatus : ''}</span></span>
           <span class="when">${esc(c.actor)} · ${ago(Date.parse(c.at))}</span><span class="ms">${c.durationMs.toFixed(1)}ms</span>
           ${c.traceId ? `<a class="ms" href="${esc(state.jaegerUrl)}/trace/${esc(c.traceId)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open this call's whole journey across services in Jaeger">trace ↗</a>` : ''}</div>
         ${c.error ? `<div class="label" style="color:var(--bad)">${esc(c.error)}</div>` : ''}
@@ -326,7 +328,7 @@ function renderPanel() {
     const matchCell = r => {
       const m = requests[r.id];
       if (!m) return r.status === 'requested'
-        ? `<button onclick="startMatching('${r.id}')" title="Calls StartMatching with a service token, as the ride service will in step 6">Start matching</button>` : '—';
+        ? `<button onclick="startMatching('${r.id}')" title="Development-only internal gRPC override; normal rides start matching automatically">Start matching (admin)</button>` : '—';
       const left = Math.round((Date.parse(m.deadlineAt) - state.now) / 1000);
       const tries = state.offers.filter(o => o.rideId === r.id).length;
       return `<span class="pill ${STATUS_PILL[m.status] || ''}">${esc(m.status)}</span>
@@ -344,7 +346,7 @@ function renderPanel() {
         ${c.refunded ? `<div style="color:var(--muted)">refunded Rp ${c.refunded.toLocaleString()}</div>` : ''}
         ${c.refundPending ? `<div><span class="pill info">refund pending</span> Rp ${c.refundPending.toLocaleString()}</div>` : ''}
         ${c.refundFailure ? `<div style="color:var(--bad)">refund failed: ${esc(c.refundFailure)}</div>` : ''}
-        ${c.status === 'captured' && left > 0 ? `<button onclick="refund('${r.id}', ${left})" title="Calls RefundCharge with a service token, standing in for a support tool">Refund</button>` : ''}`;
+        ${c.status === 'captured' && left > 0 ? `<button onclick="refund('${r.id}', ${left})" title="Development-only internal gRPC control, standing in for a support tool">Refund (admin)</button>` : ''}`;
     };
     panel.innerHTML = err('rides') + err('match_requests') + err('charges') + (state.rides.length ? `<table><tr><th>Ride</th><th>Rider</th><th>Driver</th><th>Status</th><th>Matching</th><th>Payment</th></tr>${state.rides.map(r => `<tr>
       <td class="mono">${short(r.id)}<div style="color:var(--muted)">${ago(Date.parse(r.createdAt))}</div></td>
@@ -359,7 +361,7 @@ function renderPanel() {
       return `<tr><td class="mono">${short(o.id)}</td><td class="mono">${short(o.rideId)}</td><td>${esc(nameOf(o.driverId))}</td>
         <td><span class="pill ${STATUS_PILL[o.status] || ''}">${esc(o.status)}</span></td>
         <td>${o.status === 'pending' ? (left > 0 ? `${left}s` : '<span class="pill warn">past due</span>') : '—'}</td></tr>`;
-    }).join('')}</table>` : '<div class="empty">No offers yet. Request a ride, then Start matching.</div>');
+    }).join('')}</table>` : '<div class="empty">No offers yet. Request a ride; matching starts automatically.</div>');
   }
 }
 

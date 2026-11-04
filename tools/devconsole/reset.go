@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// handleGetOffer calls GetOffer as the driver, the way a driver app polls for offers.
+// handleGetOffer is an explicit HTTP snapshot for debugging. Normal offer cards use WatchOffers instead.
 func (c *console) handleGetOffer(w http.ResponseWriter, r *http.Request) {
 	a, err := c.actor(r.PathValue("id"))
 	if err != nil || a.Kind != "driver" {
@@ -28,9 +28,7 @@ func (c *console) handleGetOffer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	res, err := c.call(a.Name, "matching.v1.MatchingService/GetOffer", tok, false, &matchingv1.GetOfferRequest{}, func(ctx context.Context) (proto.Message, error) {
-		return c.matching.GetOffer(ctx, &matchingv1.GetOfferRequest{})
-	})
+	res, err := c.call(a.Name, "matching.v1.MatchingService/GetOffer", tok, false, &matchingv1.GetOfferRequest{})
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -61,18 +59,25 @@ func (c *console) handleAnswerOffer(w http.ResponseWriter, r *http.Request) {
 	var res proto.Message
 	if answer == "accept" {
 		req := &matchingv1.AcceptOfferRequest{OfferId: offerID}
-		res, err = c.call(a.Name, "matching.v1.MatchingService/AcceptOffer", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-			return c.matching.AcceptOffer(ctx, req)
-		})
+		res, err = c.call(a.Name, "matching.v1.MatchingService/AcceptOffer", tok, false, req)
 	} else {
 		req := &matchingv1.DeclineOfferRequest{OfferId: offerID}
-		res, err = c.call(a.Name, "matching.v1.MatchingService/DeclineOffer", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-			return c.matching.DeclineOffer(ctx, req)
-		})
+		res, err = c.call(a.Name, "matching.v1.MatchingService/DeclineOffer", tok, false, req)
 	}
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if answer == "accept" {
+		rideID := res.(*matchingv1.AcceptOfferResponse).GetRideId()
+		a.mu.Lock()
+		if a.stopWatch != nil {
+			a.stopWatch()
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		a.activeRideID, a.stopWatch, a.live = rideID, cancel, nil
+		a.mu.Unlock()
+		go c.watchRide(ctx, a, rideID)
 	}
 	writeJSON(w, http.StatusOK, marshal(res))
 }
@@ -92,9 +97,7 @@ func (c *console) handleCancelRide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &ridev1.CancelRideRequest{RideId: r.PathValue("ride")}
-	if _, err := c.call(a.Name, "ride.v1.RideService/CancelRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.ride.CancelRide(ctx, req)
-	}); err != nil {
+	if _, err := c.call(a.Name, "ride.v1.RideService/CancelRide", tok, false, req); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -119,9 +122,7 @@ func (c *console) handleRefund(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &paymentv1.RefundChargeRequest{RideId: r.PathValue("id"), Amount: body.Amount, IdempotencyKey: body.Key, Reason: body.Reason}
-	res, err := c.call(systemActor, "payment.v1.PaymentService/RefundCharge", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.payment.RefundCharge(ctx, req)
-	})
+	res, err := c.call(systemActor, "payment.v1.PaymentService/RefundCharge", tok, false, req)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -155,9 +156,7 @@ func (c *console) handleEstimateFare(w http.ResponseWriter, r *http.Request) {
 		Pickup:  &ridev1.Location{Lat: body.Pickup.Lat, Lng: body.Pickup.Lng},
 		Dropoff: &ridev1.Location{Lat: body.Dropoff.Lat, Lng: body.Dropoff.Lng},
 	}
-	res, err := c.call(a.Name, "ride.v1.RideService/EstimateFare", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.ride.EstimateFare(ctx, req)
-	})
+	res, err := c.call(a.Name, "ride.v1.RideService/EstimateFare", tok, false, req)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -180,9 +179,7 @@ func (c *console) handleGetCharge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &paymentv1.GetChargeRequest{RideId: r.PathValue("ride")}
-	res, err := c.call(a.Name, "payment.v1.PaymentService/GetCharge", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.payment.GetCharge(ctx, req)
-	})
+	res, err := c.call(a.Name, "payment.v1.PaymentService/GetCharge", tok, false, req)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -205,9 +202,7 @@ func (c *console) handleGetEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &paymentv1.GetEarningsRequest{}
-	res, err := c.call(a.Name, "payment.v1.PaymentService/GetEarnings", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.payment.GetEarnings(ctx, req)
-	})
+	res, err := c.call(a.Name, "payment.v1.PaymentService/GetEarnings", tok, false, req)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -237,9 +232,7 @@ func (c *console) handleSetCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &paymentv1.SetPaymentMethodRequest{Token: body.Token}
-	if _, err := c.call(a.Name, "payment.v1.PaymentService/SetPaymentMethod", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.payment.SetPaymentMethod(ctx, req)
-	}); err != nil {
+	if _, err := c.call(a.Name, "payment.v1.PaymentService/SetPaymentMethod", tok, false, req); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -262,9 +255,7 @@ func (c *console) handleRetryCharge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &paymentv1.RetryChargeRequest{RideId: r.PathValue("ride")}
-	if _, err := c.call(a.Name, "payment.v1.PaymentService/RetryCharge", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.payment.RetryCharge(ctx, req)
-	}); err != nil {
+	if _, err := c.call(a.Name, "payment.v1.PaymentService/RetryCharge", tok, false, req); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -290,14 +281,10 @@ func (c *console) handleTripStep(w http.ResponseWriter, r *http.Request) {
 	switch r.PathValue("step") {
 	case "start":
 		req := &ridev1.StartRideRequest{RideId: rideID}
-		_, err = c.call(a.Name, "ride.v1.RideService/StartRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-			return c.ride.StartRide(ctx, req)
-		})
+		_, err = c.call(a.Name, "ride.v1.RideService/StartRide", tok, false, req)
 	case "complete":
 		req := &ridev1.CompleteRideRequest{RideId: rideID}
-		_, err = c.call(a.Name, "ride.v1.RideService/CompleteRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-			return c.ride.CompleteRide(ctx, req)
-		})
+		_, err = c.call(a.Name, "ride.v1.RideService/CompleteRide", tok, false, req)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "step must be start or complete"})
 		return
@@ -322,13 +309,14 @@ func (c *console) handleRemoveActor(w http.ResponseWriter, r *http.Request) {
 	if a.stopWatch != nil {
 		a.stopWatch()
 	}
+	if a.stopOffers != nil {
+		a.stopOffers()
+	}
 	if a.Kind == "driver" && a.online {
 		close(a.stopBeat)
 		a.online = false
 		if tok, err := c.token(a); err == nil {
-			c.call(a.Name, "location.v1.LocationService/GoOffline", tok, false, &locationv1.GoOfflineRequest{}, func(ctx context.Context) (proto.Message, error) {
-				return c.location.GoOffline(ctx, &locationv1.GoOfflineRequest{})
-			})
+			c.call(a.Name, "location.v1.LocationService/GoOffline", tok, false, &locationv1.GoOfflineRequest{})
 		}
 	}
 	a.mu.Unlock()
@@ -359,6 +347,9 @@ func (c *console) handleReset(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		if a.stopWatch != nil {
 			a.stopWatch()
+		}
+		if a.stopOffers != nil {
+			a.stopOffers()
 		}
 		if a.online {
 			close(a.stopBeat)

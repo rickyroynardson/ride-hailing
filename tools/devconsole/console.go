@@ -33,7 +33,7 @@ const (
 	// heartbeatEvery keeps online drivers inside the location service's 30s freshness window, well above its
 	// 1s rate limit.
 	heartbeatEvery = 4 * time.Second
-	// maxCalls is how many recent gRPC calls the log keeps.
+	// maxCalls is how many recent calls the log keeps.
 	maxCalls = 300
 	// systemActor labels calls the console makes as a service, e.g. StartMatching before the ride service does it.
 	systemActor = "devconsole"
@@ -44,10 +44,8 @@ type console struct {
 	// jaegerURL is where the page links each call's trace; the browser opens it, so it is the host-side address.
 	jaegerURL string
 
-	auth     userv1.AuthServiceClient
-	user     userv1.UserServiceClient
-	ride     ridev1.RideServiceClient
-	location locationv1.LocationServiceClient
+	gateway *gatewayClient
+	// Only development-only controls bypass the gateway.
 	matching matchingv1.MatchingServiceClient
 	payment  paymentv1.PaymentServiceClient
 
@@ -70,17 +68,20 @@ type actor struct {
 	Kind string `json:"kind"`
 	Name string `json:"name"`
 
-	mu           sync.Mutex
-	access       string
-	refresh      string
-	lat, lng     float64
-	online       bool
-	lastSent     time.Time
-	lastOutcome  string
-	stopBeat     chan struct{}
-	activeRideID string
-	stopWatch    context.CancelFunc
-	live         *liveRide
+	mu              sync.Mutex
+	access          string
+	refresh         string
+	lat, lng        float64
+	online          bool
+	lastSent        time.Time
+	lastOutcome     string
+	stopBeat        chan struct{}
+	activeRideID    string
+	stopWatch       context.CancelFunc
+	live            *liveRide
+	stopOffers      context.CancelFunc
+	offer           *liveOffer
+	offersConnected bool
 	// card is the fake provider token last set; empty means the fake's default card.
 	card string
 }
@@ -96,8 +97,10 @@ type actorView struct {
 	TokenExpiry int64    `json:"tokenExpiry"`
 	Claims      []string `json:"claims"`
 	// Live is the latest WatchRide message for the rider's ride.
-	Live *liveRide `json:"live,omitempty"`
-	Card string    `json:"card,omitempty"`
+	Live            *liveRide  `json:"live,omitempty"`
+	Card            string     `json:"card,omitempty"`
+	Offer           *liveOffer `json:"offer,omitempty"`
+	OffersConnected bool       `json:"offersConnected"`
 }
 
 type latLng struct {
@@ -115,12 +118,17 @@ type callEntry struct {
 	Error      string          `json:"error,omitempty"`
 	DurationMs float64         `json:"durationMs"`
 	Heartbeat  bool            `json:"heartbeat"`
+	Transport  string          `json:"transport"`
+	HTTPMethod string          `json:"httpMethod,omitempty"`
+	Path       string          `json:"path,omitempty"`
+	HTTPStatus int             `json:"httpStatus,omitempty"`
 	// TraceID opens the call's whole journey in Jaeger; empty for untraced heartbeats or with tracing off.
 	TraceID string `json:"traceId,omitempty"`
 }
 
-// call runs one gRPC call with the given bearer token and records it in the call log.
-func (c *console) call(who, method, token string, heartbeat bool, req proto.Message, fn func(ctx context.Context) (proto.Message, error)) (proto.Message, error) {
+// call runs a public action through the gateway, or one of the two explicitly internal development controls, and
+// records its transport and result. Public actions never use a service token or fall back to a direct gRPC call.
+func (c *console) call(who, method, token string, heartbeat bool, req proto.Message) (proto.Message, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -132,7 +140,7 @@ func (c *console) call(who, method, token string, heartbeat bool, req proto.Mess
 	} else {
 		var span trace.Span
 		// Named after the actor's action, e.g. "rider-1: CreateRide", so a trace's first line reads as what the
-		// user did; the gRPC client span below it carries the full method.
+		// user did; the HTTP client span below it carries the gateway request.
 		ctx, span = otel.Tracer("devconsole").Start(ctx, who+": "+method[strings.LastIndex(method, "/")+1:],
 			trace.WithAttributes(attribute.String("devconsole.actor", who)))
 		defer span.End()
@@ -145,12 +153,25 @@ func (c *console) call(who, method, token string, heartbeat bool, req proto.Mess
 	}
 
 	start := time.Now()
-	res, err := fn(ctx)
+	var res proto.Message
+	var err error
+	transport, httpMethod, path, httpStatus := "HTTP", "", "", 0
+	switch method {
+	case "matching.v1.MatchingService/StartMatching":
+		transport = "internal gRPC"
+		res, err = c.matching.StartMatching(ctx, req.(*matchingv1.StartMatchingRequest))
+	case "payment.v1.PaymentService/RefundCharge":
+		transport = "internal gRPC"
+		res, err = c.payment.RefundCharge(ctx, req.(*paymentv1.RefundChargeRequest))
+	default:
+		res, httpMethod, path, httpStatus, err = c.gateway.call(ctx, method, token, req)
+	}
 	e := callEntry{
 		At: start, Actor: who, Method: method, Heartbeat: heartbeat,
 		Request: marshal(req), Response: marshal(res),
 		Code: status.Code(err).String(), DurationMs: float64(time.Since(start).Microseconds()) / 1000,
-		TraceID: traceID,
+		TraceID:   traceID,
+		Transport: transport, HTTPMethod: httpMethod, Path: path, HTTPStatus: httpStatus,
 	}
 	if err != nil {
 		e.Error = status.Convert(err).Message()
@@ -185,10 +206,7 @@ func (c *console) token(a *actor) (string, error) {
 	if time.Until(time.Unix(tokenExpiry(a.access), 0)) > time.Minute {
 		return a.access, nil
 	}
-	res, err := c.call(a.Name, "user.v1.AuthService/Refresh", "", false, &userv1.RefreshRequest{RefreshToken: a.refresh},
-		func(ctx context.Context) (proto.Message, error) {
-			return c.auth.Refresh(ctx, &userv1.RefreshRequest{RefreshToken: a.refresh})
-		})
+	res, err := c.call(a.Name, "user.v1.AuthService/Refresh", "", false, &userv1.RefreshRequest{RefreshToken: a.refresh})
 	if err != nil {
 		return "", err
 	}
@@ -258,6 +276,7 @@ func (a *actor) view() actorView {
 		v.Location = &latLng{a.lat, a.lng}
 	}
 	v.Live, v.Card = a.live, a.card
+	v.Offer, v.OffersConnected = a.offer, a.offersConnected
 	return v
 }
 
@@ -283,9 +302,7 @@ func (c *console) handleCreateActor(w http.ResponseWriter, r *http.Request) {
 		Password: "password123",
 		Name:     a.Name,
 	}
-	res, err := c.call(a.Name, "user.v1.AuthService/Register", "", false, reg, func(ctx context.Context) (proto.Message, error) {
-		return c.auth.Register(ctx, reg)
-	})
+	res, err := c.call(a.Name, "user.v1.AuthService/Register", "", false, reg)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -301,6 +318,12 @@ func (c *console) handleCreateActor(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Install cancellation before publishing the actor: a concurrent reset must be able to stop its stream.
+	if a.Kind == "driver" {
+		ctx, cancel := context.WithCancel(context.Background())
+		a.stopOffers = cancel
+		go c.watchOffers(ctx, a)
+	}
 	c.mu.Lock()
 	c.actors = append(c.actors, a)
 	c.byID[a.ID] = a
@@ -316,9 +339,7 @@ func (c *console) makeApprovedDriver(a *actor, n int, stamp int64) error {
 		VehiclePlate:  fmt.Sprintf("B%dDEV%d", n, stamp%1_000_000),
 		VehicleModel:  "Toyota Avanza",
 	}
-	if _, err := c.call(a.Name, "user.v1.UserService/RegisterDriver", a.access, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.user.RegisterDriver(ctx, req)
-	}); err != nil {
+	if _, err := c.call(a.Name, "user.v1.UserService/RegisterDriver", a.access, false, req); err != nil {
 		return err
 	}
 
@@ -394,9 +415,7 @@ func (c *console) sendLocation(a *actor, heartbeat bool) error {
 		AccuracyMeters: 8,
 		RecordedAt:     timestamppb.Now(),
 	}
-	res, err := c.call(a.Name, "location.v1.LocationService/UpdateDriverLocation", tok, heartbeat, req, func(ctx context.Context) (proto.Message, error) {
-		return c.location.UpdateDriverLocation(ctx, req)
-	})
+	res, err := c.call(a.Name, "location.v1.LocationService/UpdateDriverLocation", tok, heartbeat, req)
 	a.lastSent = time.Now()
 	if err != nil {
 		a.lastOutcome = status.Code(err).String()
@@ -421,9 +440,7 @@ func (c *console) handleOffline(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, err := c.token(a)
 	if err == nil {
-		_, err = c.call(a.Name, "location.v1.LocationService/GoOffline", tok, false, &locationv1.GoOfflineRequest{}, func(ctx context.Context) (proto.Message, error) {
-			return c.location.GoOffline(ctx, &locationv1.GoOfflineRequest{})
-		})
+		_, err = c.call(a.Name, "location.v1.LocationService/GoOffline", tok, false, &locationv1.GoOfflineRequest{})
 	}
 	if err != nil {
 		writeErr(w, err)
@@ -458,9 +475,7 @@ func (c *console) handleRequestRide(w http.ResponseWriter, r *http.Request) {
 		Pickup:  &ridev1.Location{Lat: body.Pickup.Lat, Lng: body.Pickup.Lng},
 		Dropoff: &ridev1.Location{Lat: body.Dropoff.Lat, Lng: body.Dropoff.Lng},
 	}
-	res, err := c.call(a.Name, "ride.v1.RideService/CreateRide", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.ride.CreateRide(ctx, req)
-	})
+	res, err := c.call(a.Name, "ride.v1.RideService/CreateRide", tok, false, req)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -475,8 +490,8 @@ func (c *console) handleRequestRide(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"rideId": a.activeRideID})
 }
 
-// handleStartMatching calls StartMatching with a service token, standing in for the ride service until it
-// calls matching itself (step 6).
+// handleStartMatching is a development-only override that bypasses the gateway with a service token. Normal rides
+// start matching automatically through ride's outbox.
 func (c *console) handleStartMatching(w http.ResponseWriter, r *http.Request) {
 	rideID := r.PathValue("id")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -493,9 +508,7 @@ func (c *console) handleStartMatching(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := &matchingv1.StartMatchingRequest{RideId: rideID, Pickup: &matchingv1.Location{Lat: p.Lat, Lng: p.Lng}}
-	res, err := c.call(systemActor, "matching.v1.MatchingService/StartMatching", tok, false, req, func(ctx context.Context) (proto.Message, error) {
-		return c.matching.StartMatching(ctx, req)
-	})
+	res, err := c.call(systemActor, "matching.v1.MatchingService/StartMatching", tok, false, req)
 	if err != nil {
 		writeErr(w, err)
 		return

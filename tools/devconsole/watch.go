@@ -2,17 +2,16 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // liveRide is what a rider's WatchRide stream last said.
@@ -43,20 +42,21 @@ func (c *console) watchRide(ctx context.Context, a *actor, rideID string) {
 // followStream reads one stream and reports whether watching is over, as opposed to worth reconnecting.
 func (c *console) followStream(ctx context.Context, a *actor, rideID, tok string) bool {
 	req := &ridev1.WatchRideRequest{RideId: rideID}
-	stream, err := c.ride.WatchRide(metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tok), req)
-	for err == nil {
-		start := time.Now()
-		var res *ridev1.WatchRideResponse
-		if res, err = stream.Recv(); err == nil {
-			c.onRideUpdate(a, res, start)
-		}
-	}
-	if errors.Is(err, io.EOF) {
+	finished := false
+	err := c.gateway.watch(ctx, "ride.v1.RideService/WatchRide", tok, req, func() {}, func(m proto.Message) bool {
+		res := m.(*ridev1.WatchRideResponse)
+		c.onRideUpdate(a, res, time.Now())
+		st := res.GetRide().GetStatus()
+		finished = st == ridev1.RideStatus_RIDE_STATUS_COMPLETED || st == ridev1.RideStatus_RIDE_STATUS_CANCELLED
+		return !finished
+	})
+	if finished || ctx.Err() != nil {
 		return true
 	}
 	c.record(callEntry{
 		At: time.Now(), Actor: a.Name, Method: "ride.v1.RideService/WatchRide", Request: marshal(req), Response: marshal(nil),
 		Code: status.Code(err).String(), Error: status.Convert(err).Message(),
+		Transport: "HTTP stream", HTTPMethod: "GET", Path: "/v1/rides/" + rideID + ":watch",
 	})
 	return status.Code(err) == codes.NotFound
 }
@@ -83,8 +83,64 @@ func (c *console) onRideUpdate(a *actor, res *ridev1.WatchRideResponse, waitingS
 		At: time.Now(), Actor: a.Name, Method: "ride.v1.RideService/WatchRide", Heartbeat: sameStatus,
 		Request: marshal(&ridev1.WatchRideRequest{RideId: r.GetRideId()}), Response: marshal(res), Code: codes.OK.String(),
 		DurationMs: float64(time.Since(waitingSince).Microseconds()) / 1000,
+		Transport:  "HTTP stream", HTTPMethod: "GET", Path: "/v1/rides/" + r.GetRideId() + ":watch", HTTPStatus: http.StatusOK,
 	})
 	c.tellPages()
+}
+
+type liveOffer struct {
+	ID        string    `json:"id"`
+	RideID    string    `json:"rideId"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// watchOffers keeps the driver's latest offer from the public stream, never from the database inspector. EOF isn't
+// terminal here: a restarted server or expired connection must be followed by a fresh snapshot on reconnect.
+func (c *console) watchOffers(ctx context.Context, a *actor) {
+	for ctx.Err() == nil {
+		a.mu.Lock()
+		tok, err := c.token(a)
+		a.mu.Unlock()
+		if err == nil {
+			err = c.gateway.watch(ctx, "matching.v1.MatchingService/WatchOffers", tok, &matchingv1.WatchOffersRequest{}, func() {
+				a.mu.Lock()
+				a.offersConnected = true
+				a.mu.Unlock()
+				c.tellPages()
+			}, func(m proto.Message) bool {
+				res := m.(*matchingv1.WatchOffersResponse)
+				a.mu.Lock()
+				a.offer = nil
+				if o := res.GetOffer(); o != nil {
+					a.offer = &liveOffer{ID: o.GetOfferId(), RideID: o.GetRideId(), ExpiresAt: o.GetExpiresAt().AsTime()}
+				}
+				a.mu.Unlock()
+				c.record(callEntry{
+					At: time.Now(), Actor: a.Name, Method: "matching.v1.MatchingService/WatchOffers",
+					Request: marshal(&matchingv1.WatchOffersRequest{}), Response: marshal(res), Code: codes.OK.String(),
+					Transport: "HTTP stream", HTTPMethod: "GET", Path: "/v1/driver/offer:watch", HTTPStatus: http.StatusOK,
+				})
+				c.tellPages()
+				return ctx.Err() == nil
+			})
+		}
+		a.mu.Lock()
+		a.offersConnected, a.offer = false, nil // no stale actionable offer while disconnected
+		a.mu.Unlock()
+		c.tellPages()
+		if ctx.Err() != nil {
+			return
+		}
+		c.record(callEntry{
+			At: time.Now(), Actor: a.Name, Method: "matching.v1.MatchingService/WatchOffers",
+			Code: status.Code(err).String(), Error: fmt.Sprint(err), Transport: "HTTP stream", HTTPMethod: "GET", Path: "/v1/driver/offer:watch",
+		})
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 func (c *console) tellPages() {
