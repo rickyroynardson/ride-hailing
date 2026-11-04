@@ -19,6 +19,65 @@ features. Manual StartMatching and Refund controls use internal gRPC and are lab
 they are deliberately not exposed by the gateway. Register/login limits apply to the console too; a 429 is shown as
 such instead of silently bypassing the gateway. Rebuilding the console clears its in-memory sessions.
 
+## Service discovery
+
+Backend clients use `pkg/grpcserver.NewClient`. It resolves service DNS names at connection startup and every
+five seconds while the connection is active, even when the current endpoint is healthy. This matters after
+container recreation: another gRPC service can reuse the old IP, accept connections, and return `unknown service`
+without triggering normal connection-failure discovery. A changed DNS answer updates the existing client connection.
+
+- Addresses must be `host:port` or `dns:///host:port`; only A/AAAA lookup is supported, not SRV/TXT, custom DNS
+  authorities or other resolver schemes. Literal IPs work but cannot discover a replacement address.
+- Each lookup has a two-second timeout. Failed/empty answers keep the last usable address set; refreshes continue.
+  Reordered or duplicate answers do not churn connections. Closing the client cancels discovery.
+- Connection backoff starts at 200ms and caps at three seconds. This is not a recovery-time guarantee: DNS caching,
+  lookup time, connection establishment and caller deadlines still matter. Connections remain lazy at startup.
+- Credentials and tracing options are unchanged. The helper adds no RPC retry policy or readiness wait; callers
+  can provide earlier deadlines, and retries of writes still need idempotency. gRPC's normal transparent retries still apply.
+- Discovery affects subsequent connections/calls; it cannot resume an existing stream. Stream consumers must reconnect.
+  It also does not verify service identity: scoped authentication/mTLS is a separate concern.
+
+Run the small loopback-server and controlled-DNS tests without Docker or changes to machine DNS:
+
+```sh
+(cd pkg && go test -race -count=1 ./grpcserver)
+```
+
+`TestClientRecoversFromHealthyWrongService` first reaches the original service, reconnects its old address to a
+healthy server that returns `Unimplemented`, then changes the DNS answer and verifies recovery using the same client.
+Other checks cover initial/transient lookup failures, normalized answers, cancellation, literal IPs and no replay
+of an RPC that a handler received and answered with `Unavailable`.
+
+## Backpressure
+
+`pkg/grpcserver.NewClient` also puts a bulkhead around outgoing unary RPCs, shared across methods on that connection:
+
+- **32 active calls**, with at most **32 additional calls waiting**. Excess work immediately returns gRPC
+  `ResourceExhausted` (HTTP **429** through the gateway), without invoking the backend.
+- **Three seconds total**, including queue time, discovery/connection establishment and the RPC itself.
+  Earlier caller deadlines win. A queued request that cancels or expires is removed without dispatching it.
+- Slots are released when calls return, including errors/cancellation. Waiting doesn't start extra worker goroutines;
+  an unrelated backend connection has its own capacity. This is a bounded queue, not a strict FIFO scheduler.
+- Streams bypass unary limits and deadlines; they need separate admission/lifetime policies. Existing gateway
+  rate limiting remains separate: rate limits control arrivals over time, while concurrency limits bound work held now.
+
+All existing shared backend clients use these defaults. They are initial guardrails, not measured production capacity.
+Use `grpcserver.NewClientWithLimits(address, grpcserver.ClientLimits{MaxConcurrent: 16, MaxQueued: 8, Timeout: 2*time.Second}, opts...)`
+for a dependency-specific policy; `MaxQueued: 0` means no waiting. Reuse connections: creating one per request defeats
+the limit. Limits are per process/connection, not cluster-wide, and do not cap incoming HTTP connections, server work
+from other clients, or streams. Client cancellation is not a rollback: a backend that ignores cancellation can continue
+working after the caller returns. Keep write retries idempotent; no retry policy was added here.
+
+Small deterministic tests use held slots and a slow loopback payment server, not the running stack:
+
+```sh
+(cd pkg && go test -race -run 'TestUnaryBulkhead|TestClientLimitsValidation' ./grpcserver)
+(cd services/gateway && go test -race -run TestSlowPaymentBackpressureAndRecovery ./internal/gateway)
+```
+
+They check active/queue bounds, queued cancellation/expiry, earlier deadlines, capacity recovery, independent
+connections, HTTP 429 translation, and that streams do not inherit unary limits. No Docker or load generation is needed.
+
 ## Failure recovery checks
 
 Focused integration tests exercise crash boundaries without generating traffic against the running stack:

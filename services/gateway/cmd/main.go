@@ -47,10 +47,10 @@ func main() {
 	rdb := redis.NewClient(redisOpts)
 	defer rdb.Close()
 
-	// grpc.NewClient connects lazily, so the gateway starts even if a service isn't up; its routes answer
+	// grpcserver.NewClient connects lazily, so the gateway starts even if a service isn't up; its routes answer
 	// UNAVAILABLE (503) until it is. Calls carry the client's own token: the gateway holds no secrets.
 	dial := func(addr string) *grpc.ClientConn {
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpcserver.ClientTracing())
+		conn, err := grpcserver.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpcserver.ClientTracing())
 		if err != nil {
 			lg.Fatal("failed to create client", zap.String("addr", addr), zap.Error(err))
 		}

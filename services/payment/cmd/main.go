@@ -64,8 +64,8 @@ func main() {
 	}
 	postgres.RegisterPoolMetrics(dbpool)
 
-	// grpc.NewClient connects lazily, so payment starts even if ride isn't up; outcomes wait on the charge until it is.
-	rideConn, err := grpc.NewClient(cfg.RideAddr,
+	// grpcserver.NewClient connects lazily, so payment starts even if ride isn't up; outcomes wait on the charge until it is.
+	rideConn, err := grpcserver.NewClient(cfg.RideAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
 		grpcserver.ClientTracing(),

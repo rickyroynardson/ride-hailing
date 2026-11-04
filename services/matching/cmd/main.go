@@ -64,19 +64,19 @@ func main() {
 	}
 	postgres.RegisterPoolMetrics(dbpool)
 
-	// Calls to other services carry a fresh service token each time. grpc.NewClient connects lazily, so
+	// Calls to other services carry a fresh service token each time. grpcserver.NewClient connects lazily, so
 	// matching starts even if location or ride is not up yet.
 	clientOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
 		grpcserver.ClientTracing(),
 	}
-	locationConn, err := grpc.NewClient(cfg.LocationAddr, clientOpts...)
+	locationConn, err := grpcserver.NewClient(cfg.LocationAddr, clientOpts...)
 	if err != nil {
 		lg.Fatal("failed to create location client", zap.Error(err))
 	}
 	defer locationConn.Close()
-	rideConn, err := grpc.NewClient(cfg.RideAddr, clientOpts...)
+	rideConn, err := grpcserver.NewClient(cfg.RideAddr, clientOpts...)
 	if err != nil {
 		lg.Fatal("failed to create ride client", zap.Error(err))
 	}

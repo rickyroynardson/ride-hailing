@@ -66,9 +66,9 @@ func main() {
 	}
 	postgres.RegisterPoolMetrics(dbpool)
 
-	// WatchRide reads the driver's position from location. grpc.NewClient connects lazily, so ride starts even if
+	// WatchRide reads the driver's position from location. grpcserver.NewClient connects lazily, so ride starts even if
 	// location isn't up; streams just go without a position until it is.
-	locationConn, err := grpc.NewClient(cfg.LocationAddr,
+	locationConn, err := grpcserver.NewClient(cfg.LocationAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
 		grpcserver.ClientTracing(),
@@ -85,8 +85,8 @@ func main() {
 	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), rideService)
 
 	// The relay delivers outbox messages (e.g. start matching, charge a ride) with a fresh service token per call.
-	// grpc.NewClient connects lazily, so ride starts even if a receiver isn't up; messages wait in the outbox until it is.
-	matchingConn, err := grpc.NewClient(cfg.MatchingAddr,
+	// grpcserver.NewClient connects lazily, so ride starts even if a receiver isn't up; messages wait in the outbox until it is.
+	matchingConn, err := grpcserver.NewClient(cfg.MatchingAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
 		grpcserver.ClientTracing(),
@@ -95,7 +95,7 @@ func main() {
 		lg.Fatal("failed to create matching client", zap.Error(err))
 	}
 	defer matchingConn.Close()
-	paymentConn, err := grpc.NewClient(cfg.PaymentAddr,
+	paymentConn, err := grpcserver.NewClient(cfg.PaymentAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
 		grpcserver.ClientTracing(),

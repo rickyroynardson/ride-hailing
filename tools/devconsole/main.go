@@ -52,7 +52,7 @@ func main() {
 	dial := func(addr string) *grpc.ClientConn {
 		// The console's calls start traces, so each call in its log can link to the whole journey in Jaeger. Its
 		// own database and Redis reads stay untraced: polled every 1.5s, they would bury the real traffic.
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpcserver.ClientTracing())
+		conn, err := grpcserver.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpcserver.ClientTracing())
 		if err != nil {
 			log.Fatalf("grpc %s: %v", addr, err)
 		}
