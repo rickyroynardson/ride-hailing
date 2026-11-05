@@ -1,5 +1,4 @@
-// Package jwtauth is the access-token contract between services: the user service signs user tokens, services sign
-// short-lived service tokens for each other, and every service verifies both.
+// Package jwtauth separates user tokens from centrally issued service tokens and verifies RPC permissions.
 package jwtauth
 
 import (
@@ -21,26 +20,35 @@ type Caller struct {
 	UserID  string
 	Driver  bool
 	Service string
+	Scope   string
 }
 
 // claims is the token payload. Driver is set for approved drivers; Service only on service tokens.
 // Services roll out one at a time, so changes must stay backward compatible: add claims before relying on them,
 // never rename or repurpose one.
 type claims struct {
+	Kind    string `json:"kind,omitempty"`
+	Scope   string `json:"scope,omitempty"`
 	Driver  bool   `json:"driver,omitempty"`
 	Service string `json:"svc,omitempty"`
 	jwt.RegisteredClaims
 }
 
 type Verifier struct {
-	secret []byte
+	secret     []byte
+	asymmetric *tokenVerifier
 }
 
+// NewVerifier is the legacy HS256 verifier for old test fixtures. Production uses VerifierFromEnv;
+// asymmetric verifiers never fall back to this shared-secret contract.
 func NewVerifier(secret string) *Verifier {
 	return &Verifier{secret: []byte(secret)}
 }
 
 func (v *Verifier) Verify(token string) (Caller, error) {
+	if v.asymmetric != nil {
+		return v.asymmetric.verify(token)
+	}
 	var c claims
 
 	_, err := jwt.ParseWithClaims(token, &c, func(*jwt.Token) (any, error) {
@@ -59,7 +67,7 @@ func (v *Verifier) Verify(token string) (Caller, error) {
 	return Caller{UserID: c.Subject, Driver: c.Driver}, nil
 }
 
-// SignUser signs a user access token; the user service is the only caller.
+// SignUser is the legacy HS256 signer retained for test fixtures. Production uses UserSignerFromEnv.
 func SignUser(secret, userID string, driver bool, now time.Time, ttl time.Duration) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims{
 		Driver: driver,
@@ -74,9 +82,8 @@ func SignUser(secret, userID string, driver bool, now time.Time, ttl time.Durati
 // serviceTokenTTL is short because a fresh token is signed for every call.
 const serviceTokenTTL = time.Minute
 
-// ServiceCredentials signs a service token for each outgoing gRPC call. Use with grpc.WithPerRPCCredentials.
-// note: all services share JWT_SECRET (HS256), so any service could also sign user tokens; move to
-// asymmetric keys (RS256/EdDSA, only the user service holding the private key) or mTLS when that matters
+// ServiceCredentials is the legacy self-signed HS256 credential for test fixtures only.
+// Production uses CredentialsFromEnv and cannot mint service tokens locally.
 type ServiceCredentials struct {
 	name   string
 	secret []byte

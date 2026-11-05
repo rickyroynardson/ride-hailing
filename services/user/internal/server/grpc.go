@@ -21,15 +21,16 @@ var methodAccess = map[string]grpcserver.Access{
 	"/user.v1.AuthService/Logout":   grpcserver.Public,
 }
 
-func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, authService *auth.AuthService, userService *user.UserService) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, authService *auth.AuthService, userService *user.UserService, options ...grpc.ServerOption) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
-	gs := grpc.NewServer(grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
+	options = append(options, grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		grpcserver.Logging(lg, errorCodes),
 		grpcserver.Auth(verifier, methodAccess),
 	))
+	gs := grpc.NewServer(options...)
 
 	userv1.RegisterAuthServiceServer(gs, NewAuthServer(authService))
 	userv1.RegisterUserServiceServer(gs, NewUserServer(userService))

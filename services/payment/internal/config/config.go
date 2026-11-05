@@ -13,7 +13,6 @@ type Config struct {
 	GRPCPort    string `mapstructure:"grpc_port"`
 	ServiceName string `mapstructure:"service_name"`
 	PostgresURL string `mapstructure:"postgres_url"`
-	JWTSecret   string `mapstructure:"jwt_secret"`
 	// RideAddr is where outcomes are reported; the default is the compose service name.
 	RideAddr string `mapstructure:"ride_addr"`
 }
@@ -26,7 +25,6 @@ func Load() (*Config, error) {
 	v.SetDefault("grpc_port", "50051")
 	v.SetDefault("service_name", "payment-service")
 	v.SetDefault("postgres_url", "")
-	v.SetDefault("jwt_secret", "")
 	v.SetDefault("ride_addr", "ride:50051")
 
 	v.SetConfigName("config")
@@ -50,9 +48,6 @@ func Load() (*Config, error) {
 
 	if cfg.PostgresURL == "" {
 		return nil, errors.New("postgres_url is required")
-	}
-	if cfg.JWTSecret == "" {
-		return nil, errors.New("jwt_secret is required")
 	}
 
 	return &cfg, nil

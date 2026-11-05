@@ -3,19 +3,17 @@ package main
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/lifecycle"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
+	"github.com/rickyroynardson/ride-hailing/pkg/workloadtls"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/auth"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/user/internal/database"
@@ -35,6 +33,18 @@ func main() {
 		log.Fatalf("failed to init logger: %v", err)
 	}
 	defer lg.Sync()
+	serverTLS, err := workloadtls.ServerFromEnv()
+	if err != nil {
+		lg.Fatal("invalid server TLS configuration", zap.Error(err))
+	}
+	verifier, err := jwtauth.VerifierFromEnv("user")
+	if err != nil {
+		lg.Fatal("invalid auth trust configuration", zap.Error(err))
+	}
+	signer, err := jwtauth.UserSignerFromEnv()
+	if err != nil {
+		lg.Fatal("invalid user signing configuration", zap.Error(err))
+	}
 
 	ctx := context.Background()
 
@@ -42,7 +52,7 @@ func main() {
 	if err != nil {
 		lg.Fatal("failed to set up tracing", zap.Error(err))
 	}
-	defer shutdownTracing(context.Background())
+	defer lifecycle.Flush(shutdownTracing)
 
 	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
@@ -58,14 +68,15 @@ func main() {
 			zap.String("fix", `goose -dir services/user/migrations postgres "<postgres_url>" up`))
 	}
 	postgres.RegisterPoolMetrics(dbpool)
+	life := lifecycle.New(dbpool.Ping)
 
 	authRepo := auth.NewRepository(dbpool)
-	authService := auth.NewService(authRepo, cfg.JWTSecret)
+	authService := auth.NewServiceWithSigner(authRepo, signer)
 
 	userRepo := user.NewRepository(dbpool)
 	userService := user.NewService(userRepo)
 
-	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), authService, userService)
+	gs := server.NewGRPCServer(lg, verifier, authService, userService, serverTLS, life.UnaryOption(), life.StreamOption())
 
 	r := chi.NewRouter()
 
@@ -76,38 +87,15 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler())
 
 	sv := &http.Server{
-		Addr:    ":" + cfg.HTTPPort,
-		Handler: r,
+		Addr:              ":" + cfg.HTTPPort,
+		Handler:           life.Health(r),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
-
-	grpcLn, err := net.Listen("tcp", ":"+cfg.GRPCPort)
-	if err != nil {
-		lg.Fatal("failed to listen grpc", zap.Error(err))
-	}
-
-	go func() {
-		if err := gs.Serve(grpcLn); err != nil {
-			lg.Fatal("grpc server stopped", zap.Error(err))
+	if err := life.Run(lifecycle.Config{GRPC: gs, GRPCAddress: ":" + cfg.GRPCPort, Admin: sv, OnReady: func() { lg.Info("server ready") }, OnDrain: func() { lg.Info("server draining") }}); err != nil {
+		if err != lifecycle.ErrDrainDeadline {
+			lg.Fatal("server failed", zap.Error(err))
 		}
-	}()
-	go func() {
-		if err := sv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			lg.Fatal("failed to start server", zap.Error(err))
-		}
-	}()
-	lg.Info("server is running", zap.String("http", ":"+cfg.HTTPPort), zap.String("grpc", ":"+cfg.GRPCPort))
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
-	<-stop
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	gs.GracefulStop()
-	if err := sv.Shutdown(ctx); err != nil {
-		lg.Fatal("failed to shutdown server", zap.Error(err))
+		lg.Warn("forced shutdown", zap.Error(err))
 	}
 	lg.Info("server shutdown success")
 }

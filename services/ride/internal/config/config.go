@@ -13,7 +13,6 @@ type Config struct {
 	GRPCPort    string `mapstructure:"grpc_port"`
 	ServiceName string `mapstructure:"service_name"`
 	PostgresURL string `mapstructure:"postgres_url"`
-	JWTSecret   string `mapstructure:"jwt_secret"`
 	// MatchingAddr is where the outbox relay sends matching messages; the default is the compose service name.
 	MatchingAddr string `mapstructure:"matching_addr"`
 	// PaymentAddr is where the outbox relay sends charges; the default is the compose service name.
@@ -30,7 +29,6 @@ func Load() (*Config, error) {
 	v.SetDefault("grpc_port", "50051")
 	v.SetDefault("service_name", "ride-service")
 	v.SetDefault("postgres_url", "")
-	v.SetDefault("jwt_secret", "")
 	v.SetDefault("matching_addr", "matching:50051")
 	v.SetDefault("payment_addr", "payment:50051")
 	v.SetDefault("location_addr", "location:50051")
@@ -56,9 +54,6 @@ func Load() (*Config, error) {
 
 	if cfg.PostgresURL == "" {
 		return nil, errors.New("postgres_url is required")
-	}
-	if cfg.JWTSecret == "" {
-		return nil, errors.New("jwt_secret is required")
 	}
 
 	return &cfg, nil

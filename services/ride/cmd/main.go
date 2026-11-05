@@ -3,21 +3,19 @@ package main
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/lifecycle"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
+	"github.com/rickyroynardson/ride-hailing/pkg/workloadtls"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
 	paymentv1 "github.com/rickyroynardson/ride-hailing/proto/gen/payment/v1"
@@ -28,7 +26,6 @@ import (
 	"github.com/rickyroynardson/ride-hailing/services/ride/internal/server"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -42,6 +39,28 @@ func main() {
 		log.Fatalf("failed to init logger: %v", err)
 	}
 	defer lg.Sync()
+	serverTLS, err := workloadtls.ServerFromEnv()
+	if err != nil {
+		lg.Fatal("invalid server TLS configuration", zap.Error(err))
+	}
+	transport := func(name string) grpc.DialOption {
+		creds, err := workloadtls.ClientFromEnv(name)
+		if err != nil {
+			lg.Fatal("invalid client TLS configuration", zap.Error(err))
+		}
+		return grpc.WithTransportCredentials(creds)
+	}
+	verifier, err := jwtauth.VerifierFromEnv("ride")
+	if err != nil {
+		lg.Fatal("invalid auth trust configuration", zap.Error(err))
+	}
+	credentials := func(audience string) *jwtauth.TokenCredentials {
+		creds, err := jwtauth.CredentialsFromEnv(audience)
+		if err != nil {
+			lg.Fatal("invalid service identity configuration", zap.Error(err))
+		}
+		return creds
+	}
 
 	ctx := context.Background()
 
@@ -49,7 +68,7 @@ func main() {
 	if err != nil {
 		lg.Fatal("failed to set up tracing", zap.Error(err))
 	}
-	defer shutdownTracing(context.Background())
+	defer lifecycle.Flush(shutdownTracing)
 
 	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
@@ -65,12 +84,13 @@ func main() {
 			zap.String("fix", `goose -dir services/ride/migrations postgres "<postgres_url>" up`))
 	}
 	postgres.RegisterPoolMetrics(dbpool)
+	life := lifecycle.New(dbpool.Ping)
 
 	// WatchRide reads the driver's position from location. grpcserver.NewClient connects lazily, so ride starts even if
 	// location isn't up; streams just go without a position until it is.
 	locationConn, err := grpcserver.NewClient(cfg.LocationAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		transport("location"),
+		grpc.WithPerRPCCredentials(credentials("location")),
 		grpcserver.ClientTracing(),
 	)
 	if err != nil {
@@ -82,13 +102,13 @@ func main() {
 	hub := ride.NewHub(dbpool)
 	rideService := ride.NewService(rideRepo, hub, locationv1.NewLocationServiceClient(locationConn))
 
-	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), rideService)
+	gs := server.NewGRPCServer(lg, verifier, rideService, serverTLS, life.UnaryOption(), life.StreamOption())
 
-	// The relay delivers outbox messages (e.g. start matching, charge a ride) with a fresh service token per call.
+	// The relay delivers outbox messages with centrally issued, cached, audience-specific service tokens.
 	// grpcserver.NewClient connects lazily, so ride starts even if a receiver isn't up; messages wait in the outbox until it is.
 	matchingConn, err := grpcserver.NewClient(cfg.MatchingAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		transport("matching"),
+		grpc.WithPerRPCCredentials(credentials("matching")),
 		grpcserver.ClientTracing(),
 	)
 	if err != nil {
@@ -96,8 +116,8 @@ func main() {
 	}
 	defer matchingConn.Close()
 	paymentConn, err := grpcserver.NewClient(cfg.PaymentAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		transport("payment"),
+		grpc.WithPerRPCCredentials(credentials("payment")),
 		grpcserver.ClientTracing(),
 	)
 	if err != nil {
@@ -109,10 +129,15 @@ func main() {
 	// Every replica runs the relay; SKIP LOCKED splits the work, and receivers are idempotent anyway. The listener
 	// wakes it the moment a message commits; the one-second poll picks up retries as their backoff ends, and anything
 	// a notification missed.
-	loopCtx, stopLoops := context.WithCancel(context.Background())
-	go loop.Run(loopCtx, lg, "outbox listener", time.Second, 30*time.Second, relay.Listen)
-	go loop.RunWake(loopCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Wake(), relay.Run)
-	go loop.Run(loopCtx, lg, "ride change listener", time.Second, 30*time.Second, hub.Listen)
+	life.Go(func(loopCtx context.Context) {
+		loop.Run(loopCtx, lg, "outbox listener", time.Second, 30*time.Second, relay.Listen)
+	})
+	life.Go(func(loopCtx context.Context) {
+		loop.RunWake(loopCtx, lg, "outbox relay", time.Second, 30*time.Second, relay.Wake(), relay.Run)
+	})
+	life.Go(func(loopCtx context.Context) {
+		loop.Run(loopCtx, lg, "ride change listener", time.Second, 30*time.Second, hub.Listen)
+	})
 
 	r := chi.NewRouter()
 
@@ -123,50 +148,15 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler())
 
 	sv := &http.Server{
-		Addr:    ":" + cfg.HTTPPort,
-		Handler: r,
+		Addr:              ":" + cfg.HTTPPort,
+		Handler:           life.Health(r),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
-
-	grpcLn, err := net.Listen("tcp", ":"+cfg.GRPCPort)
-	if err != nil {
-		lg.Fatal("failed to listen grpc", zap.Error(err))
-	}
-
-	go func() {
-		if err := gs.Serve(grpcLn); err != nil {
-			lg.Fatal("grpc server stopped", zap.Error(err))
+	if err := life.Run(lifecycle.Config{GRPC: gs, GRPCAddress: ":" + cfg.GRPCPort, Admin: sv, OnReady: func() { lg.Info("server ready") }, OnDrain: func() { lg.Info("server draining") }}); err != nil {
+		if err != lifecycle.ErrDrainDeadline {
+			lg.Fatal("server failed", zap.Error(err))
 		}
-	}()
-	go func() {
-		if err := sv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			lg.Fatal("failed to start server", zap.Error(err))
-		}
-	}()
-	lg.Info("server is running", zap.String("http", ":"+cfg.HTTPPort), zap.String("grpc", ":"+cfg.GRPCPort))
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
-	<-stop
-	stopLoops()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// GracefulStop waits for every RPC, and a WatchRide stream may never end by itself. Past the deadline, Stop ends
-	// what is left; those clients reconnect to another replica.
-	stopped := make(chan struct{})
-	go func() {
-		gs.GracefulStop()
-		close(stopped)
-	}()
-	select {
-	case <-stopped:
-	case <-ctx.Done():
-		gs.Stop()
-	}
-	if err := sv.Shutdown(ctx); err != nil {
-		lg.Fatal("failed to shutdown server", zap.Error(err))
+		lg.Warn("forced shutdown", zap.Error(err))
 	}
 	lg.Info("server shutdown success")
 }

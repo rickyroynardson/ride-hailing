@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/workloadtls"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -130,7 +131,7 @@ type callerKey struct{}
 // the method: users can't reach internal RPCs, and a leaked service token can't act as a user.
 func Auth(verifier *jwtauth.Verifier, methodAccess map[string]Access) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		ctx, err := authenticate(ctx, verifier, methodAccess[info.FullMethod])
+		ctx, err := authenticate(ctx, verifier, methodAccess[info.FullMethod], info.FullMethod)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +144,7 @@ func Auth(verifier *jwtauth.Verifier, methodAccess map[string]Access) grpc.Unary
 // reflection is a stream too: list it as Public in methodAccess to keep grpcurl and Postman working.
 func StreamAuth(verifier *jwtauth.Verifier, methodAccess map[string]Access) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		ctx, err := authenticate(ss.Context(), verifier, methodAccess[info.FullMethod])
+		ctx, err := authenticate(ss.Context(), verifier, methodAccess[info.FullMethod], info.FullMethod)
 		if err != nil {
 			return err
 		}
@@ -160,7 +161,7 @@ type authedStream struct {
 func (s authedStream) Context() context.Context { return s.ctx }
 
 // authenticate returns ctx carrying the caller, if the request may reach a method with access level a.
-func authenticate(ctx context.Context, verifier *jwtauth.Verifier, a Access) (context.Context, error) {
+func authenticate(ctx context.Context, verifier *jwtauth.Verifier, a Access, method string) (context.Context, error) {
 	if a == Public {
 		return ctx, nil
 	}
@@ -177,6 +178,15 @@ func authenticate(ctx context.Context, verifier *jwtauth.Verifier, a Access) (co
 	}
 	if (caller.Service != "" && a == UsersOnly) || (caller.Service == "" && a == ServicesOnly) {
 		return nil, jwtauth.ErrWrongCaller
+	}
+	if err := verifier.Authorize(caller, method); err != nil {
+		return nil, err
+	}
+	if caller.Service != "" {
+		name, tlsPeer, err := workloadtls.PeerIdentity(ctx)
+		if err != nil || (tlsPeer && name != caller.Service) {
+			return nil, jwtauth.ErrWrongCaller
+		}
 	}
 	// Who called is the first question when reading a trace: the user, or the service acting for one.
 	if caller.Service != "" {

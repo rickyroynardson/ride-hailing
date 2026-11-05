@@ -116,13 +116,8 @@ func (c *console) handleRefund(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {amount, key, reason}"})
 		return
 	}
-	tok, err := c.serviceToken()
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
 	req := &paymentv1.RefundChargeRequest{RideId: r.PathValue("id"), Amount: body.Amount, IdempotencyKey: body.Key, Reason: body.Reason}
-	res, err := c.call(systemActor, "payment.v1.PaymentService/RefundCharge", tok, false, req)
+	res, err := c.call(systemActor, "payment.v1.PaymentService/RefundCharge", "", false, req)
 	if err != nil {
 		writeErr(w, err)
 		return

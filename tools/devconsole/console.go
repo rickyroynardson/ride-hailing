@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
 	locationv1 "github.com/rickyroynardson/ride-hailing/proto/gen/location/v1"
 	matchingv1 "github.com/rickyroynardson/ride-hailing/proto/gen/matching/v1"
@@ -40,7 +39,6 @@ const (
 )
 
 type console struct {
-	jwtSecret []byte
 	// jaegerURL is where the page links each call's trace; the browser opens it, so it is the host-side address.
 	jaegerURL string
 
@@ -244,16 +242,6 @@ func decodePayload(tok string, v any) {
 	if b, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
 		json.Unmarshal(b, v)
 	}
-}
-
-// serviceToken signs a service token through pkg/jwtauth, the same way the services sign theirs, for internal RPCs
-// the console triggers by hand.
-func (c *console) serviceToken() (string, error) {
-	md, err := jwtauth.NewServiceCredentials(systemActor, string(c.jwtSecret)).GetRequestMetadata(context.Background())
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimPrefix(md["authorization"], "Bearer "), nil
 }
 
 func (c *console) actor(id string) (*actor, error) {
@@ -504,13 +492,8 @@ func (c *console) handleStartMatching(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, fmt.Errorf("read ride pickup: %w", err))
 		return
 	}
-	tok, err := c.serviceToken()
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
 	req := &matchingv1.StartMatchingRequest{RideId: rideID, Pickup: &matchingv1.Location{Lat: p.Lat, Lng: p.Lng}}
-	res, err := c.call(systemActor, "matching.v1.MatchingService/StartMatching", tok, false, req)
+	res, err := c.call(systemActor, "matching.v1.MatchingService/StartMatching", "", false, req)
 	if err != nil {
 		writeErr(w, err)
 		return

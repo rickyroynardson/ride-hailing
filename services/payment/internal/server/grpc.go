@@ -21,11 +21,11 @@ var methodAccess = map[string]grpcserver.Access{
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo": grpcserver.Public,
 }
 
-func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, paymentService *payment.PaymentService) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, paymentService *payment.PaymentService, options ...grpc.ServerOption) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
-	gs := grpc.NewServer(grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
+	options = append(options, grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		grpcserver.Logging(lg, errorCodes),
 		grpcserver.Auth(verifier, methodAccess),
@@ -34,6 +34,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, paymentService *p
 		grpcserver.StreamLogging(lg, errorCodes),
 		grpcserver.StreamAuth(verifier, methodAccess),
 	))
+	gs := grpc.NewServer(options...)
 
 	paymentv1.RegisterPaymentServiceServer(gs, NewPaymentServer(paymentService))
 	reflection.Register(gs)

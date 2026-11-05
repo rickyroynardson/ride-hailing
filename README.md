@@ -19,6 +19,204 @@ features. Manual StartMatching and Refund controls use internal gRPC and are lab
 they are deliberately not exposed by the gateway. Register/login limits apply to the console too; a 429 is shown as
 such instead of silently bypassing the gateway. Rebuilding the console clears its in-memory sessions.
 
+## Service identity and permissions
+
+Services no longer share `JWT_SECRET` or sign their own service tokens. The local `identity` service implements a
+small OAuth-style **client-credentials exchange** at internal-only `POST /token`. It is a learning implementation,
+not a full OAuth/OIDC provider. For a production deployment prefer a maintained identity provider/workload identity.
+
+1. Each calling workload has its own random client secret. Identity stores only its SHA-256 digest and authenticates
+   the client with HTTP Basic auth over mTLS; the secret's client ID must match the certificate workload identity.
+   The request cannot choose another identity or elevate scopes.
+2. Identity signs an **Ed25519 JWT valid for 60 seconds**, for one target audience, with exact RPC-method scopes.
+3. `jwtauth.TokenCredentials` caches tokens separately per target, refreshing within ten seconds of expiry.
+   Concurrent refreshes are coalesced; exchanges have a two-second HTTP timeout and follow no redirects.
+4. Backends verify the signature, key ID, issuer, identity kind, issued-at/expiry and audience. Both the token's scope
+   and the backend's local service allowlist must permit the exact RPC. Missing/invalid tokens return
+   `Unauthenticated`; authenticated callers without permission return `PermissionDenied`. For service JWTs, the
+   caller must also match the mTLS client certificate's workload URI.
+
+The policy in `pkg/jwtauth.ServicePermissions` starts deny-by-default:
+
+| Caller | Allowed internal work |
+| --- | --- |
+| ride | Start/cancel matching, request a payment charge, read driver location |
+| matching | Find nearby drivers; filter/assign drivers or mark a ride unmatched |
+| payment | Record a payment outcome on ride |
+| devconsole (development only) | Start/cancel matching and issue refunds |
+| location, user, gateway | No service-token grants |
+
+User login remains separate: **user** alone holds a different signing key and issues 15-minute user tokens. A user key
+cannot issue service tokens, and the service issuer cannot mint user identities. Backends receive public keys only;
+the gateway still forwards user tokens without holding JWT signing keys or client secrets (it has its own TLS key).
+The devconsole no longer
+holds a signing secret; it keeps only its scoped client credential, alongside its existing privileged database access.
+
+### Docker-managed provisioning and TLS
+
+All auth secrets, TLS keys and certificates live in **named Docker volumes**, not host `.local` files. No Go, goose,
+OpenSSL, cloud account or public domain is required on the host. Start the core stack from the repository root:
+
+```sh
+sh scripts/security.sh up
+```
+
+This builds one image at a time, runs `security-init` without networking, applies existing SQL migrations through the
+one-shot `migrate` service, then starts the core services. Ordinary `docker compose up -d --build` also provisions via
+`service_completed_successfully` dependencies, but can build many images at once and starts observability too.
+Automatic migrations here are a local-development convenience, not a production mixed-version deployment strategy.
+
+`security-init` alone mounts `security_ca`, which holds a one-year development CA and its private key. Each workload
+gets its own separate `security_<name>` volume: a seven-day certificate/key, public CA, public JWT trust bundle, and only
+that workload's own JWT signing key or client credential when needed. Runtime mounts are read-only; files are mode 0600
+and owned by the distroless nonroot UID 65532. The root provisioning container has no Docker socket and no network.
+Negative-test credentials live in `security_checks`, mounted only by the disposable test container; it never receives
+the CA private key. No private material is checked in or baked into an image.
+
+Provisioning is idempotent: startup validates existing state instead of silently replacing credentials. Incomplete,
+expired or mismatched state fails closed with an error. Inspect interrupted initialization, or use scoped security
+cleanup below to regenerate it. Existing databases are not reset by startup or provisioning.
+
+Transport protections:
+
+- Identity serves **HTTPS with required client certificates**; there is no HTTP listener or public gateway route.
+- All five backend gRPC listeners require **mTLS/TLS 1.3**. Gateway, devconsole and calling services present their own
+  workload certificate. Clients check the expected service's DNS SAN (e.g. `payment`), not just whether any CA signed it.
+- Certificates carry `spiffe://ride-hailing.local/workload/<name>` URIs. This is a local identity convention, not a
+  SPIFFE/SPIRE implementation. The JWT service identity must match that URI at both issuer and backend.
+- mTLS authenticates the transport; JWT audience, exact RPC scopes, caller-kind checks and business authorization still
+  apply. A valid ride certificate and token do not allow refunds or acting as an end user.
+- Browser-facing gateway/devconsole HTTP stays loopback-only for local development. Postgres, Redis and telemetry are
+  not TLS-enabled by this change. The Docker CA is for development, not a production PKI or service mesh.
+
+When switching from the old host-file/plaintext setup, rebuild/recreate all core services together. They are not
+wire-compatible with old binaries. JWT signing material is newly provisioned, so refresh/login is needed for old access
+tokens; stored refresh sessions and business data need no reset. Legacy HS256 helpers remain only for old isolated
+test fixtures; deployed constructors have no HS256 or plaintext fallback.
+
+Shared auth configuration is read from environment variables (not the service YAML):
+
+| Variable | Who needs it |
+| --- | --- |
+| `AUTH_TRUST_BUNDLE_FILE` | Every backend and outgoing service-token client; public keys indexed by key ID |
+| `USER_SIGNING_KEY_FILE` | User only |
+| `SERVICE_SIGNING_KEY_FILE`, `SERVICE_CLIENTS_FILE` | Identity only |
+| `SERVICE_CLIENT_FILE`, `SERVICE_TOKEN_URL` | Ride, matching, payment and devconsole |
+| `TLS_DIR` | All core workloads, including identity and gateway; own `tls.crt`, `tls.key` and `ca.crt` |
+
+Missing/malformed auth files fail startup rather than falling back to a shared secret. Display/telemetry `SERVICE_NAME`
+does not select identity: the client credential and TLS certificate do. The old `AUTH_ALLOW_INSECURE` flag is ignored by
+deployed constructors. Keep clocks synchronized. A stolen service token or client secret alone cannot be presented
+under another workload's certificate. Theft of that workload's TLS key as well allows impersonation until rotation or
+expiry. There is no per-token/certificate revocation list; established connections can outlive leaf-certificate expiry.
+
+### Certificate rotation, cleanup and tests
+
+```sh
+sh scripts/security.sh check   # Docker loopback unit tests + live mTLS/JWT smoke checks; no financial writes
+sh scripts/security.sh rotate  # New workload keys/certs under the same CA, recreate core services, rerun checks
+sh scripts/security.sh clean   # Stop/remove core containers and this project's security volumes; retain DB data/images
+sh scripts/security.sh clean --images # Also remove unused images labelled for this Compose project (never force)
+```
+
+Certificate rotation preserves the CA, JWT signing keys and client secrets, so user tokens and grants do not change.
+Certificates are loaded at startup; this is a coordinated restart, not hot reload or a zero-downtime rollout. Do not run
+initialization, rotation and cleanup concurrently. Rotate before the seven-day leaves expire; initialization will reject
+expired leaves and direct you to rotation. A new CA requires scoped security cleanup and reprovisioning; CA rollover
+with overlapping roots is not implemented.
+
+Cleanup selects volumes by **both Compose project label and security label**. It never globally prunes Docker or removes
+another project's volumes. After `clean`, `up` regenerates security; existing access tokens need refresh/login. For a
+deliberate full local reset, including Postgres/observability data and Compose-built images:
+
+```sh
+sh scripts/security.sh reset --yes-delete-data
+```
+
+`docker compose down` alone keeps named volumes; `docker compose down -v` destroys **all** project volumes, including
+databases and the CA. Images and shared BuildKit caches are separate: full reset removes Compose-local images and
+unused project-labelled images, including old/dangling builds. Images still in use or referenced by other tags are kept;
+shared build caches are intentionally not globally pruned. No host PEM/credential files need cleanup in the new setup.
+Observability is not started by the core helper; exporter warnings are expected until you start that stack.
+
+`check` builds/runs unit tests inside Docker, then uses a `--rm` container with only the ride identity and test fixture
+volumes. It verifies HTTPS, client certificates, wrong-host rejection, unknown/expired certificates, missing JWTs,
+audience/scopes and certificate/JWT identity binding. Both client and server expiry, provisioning idempotency, isolation
+and certificate rotation also have deterministic loopback unit tests. The CA private key is never mounted into checks.
+
+### JWT key rotation and issuer outages
+
+- Add the next public key under a new ID alongside the old key in `trust.json`, then restart every verifier/client
+  to load the overlapping ring. Switch the relevant signer's private-key file and restart that signer. After the last
+  old token expires (60 seconds for services, 15 minutes for users, plus an operational margin), remove the old public
+  key and restart verifiers again. Unknown key IDs are rejected; no network key-fetch or hot reload is implemented.
+  The current helper automates TLS leaf rotation only; JWT key changes require an explicit provisioning change.
+- For client-secret rotation, replace that client's digest in identity's registry and its own credential file; restart
+  identity and that client. There is no dual-secret grace window, so coordinate the rollout. Removing a client prevents
+  new issuance; already issued tokens stay valid until expiry.
+- An issuer outage does not affect backend verification or still-fresh cached tokens. Once refresh is needed, callers
+  fail within their budgets; they never self-sign or reuse expired tokens. Existing idempotent application retries
+  handle recovery. Refresh failures aren't cached/backed off beyond normal caller backpressure and retry policies.
+  Exchange failures return `Unavailable` (HTTP 503), not a misleading end-user authentication failure/401.
+
+Check the auth mechanism without Docker, database changes or requests to the running stack:
+
+```sh
+(cd pkg && go test -race ./jwtauth ./grpcserver)
+(cd services/gateway && go test -race -run TestCentralIdentityOverGRPC ./internal/gateway)
+```
+
+Tests cover client impersonation, forbidden grants/scopes, user/service separation, wrong audiences, expiry, key
+rotation, cached tokens/issuer outages, redirect protection, unary/stream authorization and real loopback gRPC calls.
+
+## Readiness, shutdown and safe-deployment exercise
+
+Every core process now exposes **`GET /livez`** and **`GET /readyz`**. Backends and gateway expose them on their existing
+admin HTTP listener (container port 8080); identity uses internal port 9090, and devconsole uses port 9000. The old `/`
+pong is not a readiness check. Probes need no token/key and never expose storage error details.
+
+- Liveness reports that the HTTP process is responding, even when storage is unavailable or the instance is draining.
+- Readiness starts false. TLS, auth and schema setup must succeed and all listeners must bind before readiness is
+  enabled. A readiness probe also checks the service's direct Postgres/Redis dependencies with a 500ms budget.
+  It does not recursively probe other services, so one downstream outage doesn't make every service unready.
+- On SIGTERM/SIGINT, readiness immediately becomes 503 and new business RPCs/HTTP requests get `Unavailable`/503.
+  Already admitted calls may finish. Background loops are canceled and joined before shared resources close; interrupted
+  worker deliveries still rely on the existing lease fencing and receiver/provider idempotency.
+- A 500ms withdrawal window precedes transport shutdown. HTTP and gRPC then drain concurrently under **one five-second
+  budget**, including that window. Remaining streams/connections are force-closed at the deadline. Telemetry flush has
+  a separate one-second limit. Compose grants 12 seconds before its final process kill; arbitrary Go code that ignores
+  cancellation cannot safely be killed individually. Expected stream timeouts log a forced drain, not a fatal crash.
+
+Distroless images include a small `/probe` binary, so Compose needs no curl/shell or private keys for health checks.
+`sh scripts/security.sh up` waits for readiness; startup-only dependencies can wait for identity to become healthy.
+**Compose health checks are not a load balancer:** unhealthy instances are not automatically removed from DNS, traffic
+is not automatically rerouted by readiness, and Docker does not restart a container merely because it becomes unhealthy.
+An orchestrator/load balancer must implement that policy. During a restart callers may see transient errors; retry writes
+only with the same idempotency key. This change adds no automatic replay policy or transparent stream resumption.
+
+Run the controlled Docker drill:
+
+```sh
+sh scripts/security.sh deployment-check
+```
+
+This builds lifecycle unit tests inside Docker, then starts **two disposable payment-like fixture replicas** and a
+separate tmpfs Postgres store. They use the existing public trust/leaf identities read-only, never the CA private key or
+Docker socket. There are no fixture host ports. The fixture-only stop endpoint sends SIGTERM to its own process;
+production services do not expose an HTTP shutdown/kill endpoint.
+
+The drill holds an admitted unary call and a watch stream, signals replica A, checks `readyz=503` while `livez=200`, and
+verifies new work is rejected. Replica B accepts a replay using the same key while A finishes with a deliberately lost
+acknowledgement. The store must contain **one durable fixture effect**, and no effect for the rejected request. The
+long stream must close within the deadline and A must exit normally, not via SIGKILL. After Docker restarts A, both
+replicas accept replays without another effect and a client explicitly reopens a watch stream.
+
+Failover/retry selection is explicit in the drill; it does not claim to demonstrate a production rolling orchestrator
+or exactly-once network delivery. The fake effect/receipt models durable idempotency, while the existing ride/payment
+failure-recovery suites cover real business postings separately. No development accounts, rides, charges or refunds
+are created. The script removes fixture containers, anonymous volumes and tmpfs data on success/failure; retained test
+images can be removed with the existing scoped `clean --images`. The full reset also includes this test profile.
+
 ## Service discovery
 
 Backend clients use `pkg/grpcserver.NewClient`. It resolves service DNS names at connection startup and every

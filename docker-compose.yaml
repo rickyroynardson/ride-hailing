@@ -1,4 +1,133 @@
+x-auth-env: &auth-env
+  TLS_DIR: "/security"
+  AUTH_TRUST_BUNDLE_FILE: "/security/trust.json"
+  SERVICE_TOKEN_URL: "https://identity:8080/token"
+
+x-security-volume: &security-volume
+  labels:
+    ride-hailing.security: "true"
+
+x-health: &health
+  test: ["CMD", "/probe", "-url", "http://127.0.0.1:8080/readyz"]
+  interval: 3s
+  timeout: 2s
+  start_period: 10s
+  retries: 3
+
+x-lifecycle: &lifecycle
+  stop_grace_period: 12s
+  healthcheck: *health
+
+x-deployment-fixture: &deployment-fixture
+  <<: *lifecycle
+  profiles: [deployment-check]
+  image: ride-hailing-deployment-check
+  build:
+    context: .
+    dockerfile: services/deployment-check/Dockerfile
+  command: ["serve"]
+  environment:
+    <<: *auth-env
+    STORE_URL: "postgres://postgres:postgres@deployment-store:5432/deployment?sslmode=disable"
+  volumes:
+    - security_payment:/security:ro
+  depends_on:
+    security-init:
+      condition: service_completed_successfully
+    deployment-store:
+      condition: service_healthy
+
 services:
+  deployment-a:
+    <<: *deployment-fixture
+  deployment-b:
+    <<: *deployment-fixture
+  deployment-check:
+    profiles: [deployment-check]
+    image: ride-hailing-deployment-check
+    environment:
+      <<: *auth-env
+      SERVICE_CLIENT_FILE: "/security/client.json"
+      STORE_URL: "postgres://postgres:postgres@deployment-store:5432/deployment?sslmode=disable"
+    volumes:
+      - security_ride:/security:ro
+  deployment-store:
+    profiles: [deployment-check]
+    image: postgres:latest
+    init: true
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: deployment
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      - ./scripts/postgres/deployment-check.sql:/docker-entrypoint-initdb.d/deployment.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d deployment"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  migrate:
+    build:
+      context: .
+      dockerfile: services/migrate/Dockerfile
+    environment:
+      POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-shot, idempotent provisioning. Only this container can access the CA private key.
+  security-init:
+    build:
+      context: .
+      dockerfile: services/security-init/Dockerfile
+    network_mode: none
+    volumes:
+      - security_ca:/state/ca
+      - security_identity:/state/identity
+      - security_user:/state/user
+      - security_ride:/state/ride
+      - security_location:/state/location
+      - security_matching:/state/matching
+      - security_payment:/state/payment
+      - security_gateway:/state/gateway
+      - security_devconsole:/state/devconsole
+      - security_checks:/state/checks
+
+  security-check:
+    profiles: [security-check]
+    build:
+      context: .
+      dockerfile: services/security-check/Dockerfile
+    environment:
+      <<: *auth-env
+      SERVICE_CLIENT_FILE: "/security/client.json"
+    volumes:
+      - security_ride:/security:ro
+      - security_checks:/checks:ro
+
+  identity:
+    <<: *lifecycle
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/probe", "-url", "http://127.0.0.1:9090/readyz"]
+    build:
+      context: .
+      dockerfile: services/identity/Dockerfile
+    environment:
+      TLS_DIR: "/security"
+      SERVICE_SIGNING_KEY_FILE: "/security/signing.json"
+      SERVICE_CLIENTS_FILE: "/security/clients.json"
+    volumes:
+      - security_identity:/security:ro
+    depends_on:
+      security-init:
+        condition: service_completed_successfully
+    # No host port or public gateway route. Only internal workloads exchange client credentials here.
+
   postgres:
     image: postgres:latest
     # Postgres as PID 1 reaps every orphan in the container, and treats one that exits non-zero as a crashed backend:
@@ -33,6 +162,7 @@ services:
       retries: 10
 
   user:
+    <<: *lifecycle
     container_name: user-service
     build:
       context: .
@@ -42,13 +172,21 @@ services:
       - "127.0.0.1:50051:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
-      JWT_SECRET: "dev-secret-change-me"
+      <<: *auth-env
+      USER_SIGNING_KEY_FILE: "/security/signing.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_user:/security:ro
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      security-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
   ride:
+    <<: *lifecycle
     container_name: ride-service
     build:
       context: .
@@ -58,13 +196,23 @@ services:
       - "127.0.0.1:50052:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/rides?sslmode=disable"
-      JWT_SECRET: "dev-secret-change-me"
+      <<: *auth-env
+      SERVICE_CLIENT_FILE: "/security/client.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_ride:/security:ro
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      security-init:
+        condition: service_completed_successfully
+      identity:
+        condition: service_healthy
       postgres:
         condition: service_healthy
 
   location:
+    <<: *lifecycle
     container_name: location-service
     build:
       context: .
@@ -74,13 +222,18 @@ services:
       - "127.0.0.1:50053:50051"
     environment:
       REDIS_URL: "redis://redis:6379/0"
-      JWT_SECRET: "dev-secret-change-me"
+      <<: *auth-env
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_location:/security:ro
     depends_on:
+      security-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
   matching:
+    <<: *lifecycle
     container_name: matching-service
     build:
       context: .
@@ -90,13 +243,23 @@ services:
       - "127.0.0.1:50054:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/matching?sslmode=disable"
-      JWT_SECRET: "dev-secret-change-me"
+      <<: *auth-env
+      SERVICE_CLIENT_FILE: "/security/client.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_matching:/security:ro
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      security-init:
+        condition: service_completed_successfully
+      identity:
+        condition: service_healthy
       postgres:
         condition: service_healthy
 
   payment:
+    <<: *lifecycle
     container_name: payment-service
     build:
       context: .
@@ -106,15 +269,25 @@ services:
       - "127.0.0.1:50055:50051"
     environment:
       POSTGRES_URL: "postgres://postgres:postgres@postgres:5432/payments?sslmode=disable"
-      JWT_SECRET: "dev-secret-change-me"
+      <<: *auth-env
+      SERVICE_CLIENT_FILE: "/security/client.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_payment:/security:ro
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      security-init:
+        condition: service_completed_successfully
+      identity:
+        condition: service_healthy
       postgres:
         condition: service_healthy
 
   # The public API: the only service clients talk to. The others keep their localhost ports for development
   # (grpcurl, running a service from the host); a deployment would expose only this one.
   gateway:
+    <<: *lifecycle
     container_name: gateway
     build:
       context: .
@@ -123,6 +296,7 @@ services:
       - "127.0.0.1:8000:8000"
       - "127.0.0.1:8085:8080"
     environment:
+      TLS_DIR: "/security"
       # Its own Redis database, apart from location's driver positions.
       REDIS_URL: "redis://redis:6379/1"
       # Raise for load runs: tools/loadgen signs every user up from one IP.
@@ -130,7 +304,11 @@ services:
       USER_LIMIT_PER_MINUTE: "${USER_LIMIT_PER_MINUTE:-300}"
       ANON_LIMIT_PER_MINUTE: "${ANON_LIMIT_PER_MINUTE:-60}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_gateway:/security:ro
     depends_on:
+      security-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
@@ -146,8 +324,12 @@ services:
       gateway:
         condition: service_started
 
-  # Development-only UI: holds the JWT secret and reads every service's database. Never deploy it.
+  # Development-only UI: holds a scoped admin identity and reads every service's database. Never deploy it.
   devconsole:
+    <<: *lifecycle
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/probe", "-url", "http://127.0.0.1:9000/readyz"]
     container_name: devconsole
     build:
       context: .
@@ -163,9 +345,16 @@ services:
       MATCHING_DB_URL: "postgres://postgres:postgres@postgres:5432/matching?sslmode=disable"
       PAYMENTS_DB_URL: "postgres://postgres:postgres@postgres:5432/payments?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
-      JWT_SECRET: "dev-secret-change-me"
+      <<: *auth-env
+      SERVICE_CLIENT_FILE: "/security/client.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    volumes:
+      - security_devconsole:/security:ro
     depends_on:
+      security-init:
+        condition: service_completed_successfully
+      identity:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -248,6 +437,16 @@ services:
       - gateway
 
 volumes:
+  security_ca: *security-volume
+  security_identity: *security-volume
+  security_user: *security-volume
+  security_ride: *security-volume
+  security_location: *security-volume
+  security_matching: *security-volume
+  security_payment: *security-volume
+  security_gateway: *security-volume
+  security_devconsole: *security-volume
+  security_checks: *security-volume
   postgres_data:
   prometheus_data:
   loki_data:

@@ -21,11 +21,18 @@ const (
 
 type AuthService struct {
 	repository *AuthRepository
-	jwtSecret  string
+	signUser   jwtauth.UserSigner
 }
 
 func NewService(repo *AuthRepository, jwtSecret string) *AuthService {
-	return &AuthService{repository: repo, jwtSecret: jwtSecret}
+	// Legacy constructor for isolated HS256 test fixtures; production uses NewServiceWithSigner.
+	return NewServiceWithSigner(repo, func(id string, driver bool, now time.Time, ttl time.Duration) (string, error) {
+		return jwtauth.SignUser(jwtSecret, id, driver, now, ttl)
+	})
+}
+
+func NewServiceWithSigner(repo *AuthRepository, signer jwtauth.UserSigner) *AuthService {
+	return &AuthService{repository: repo, signUser: signer}
 }
 
 func (s *AuthService) Register(ctx context.Context, in RegisterInput) (user.User, Tokens, error) {
@@ -119,7 +126,7 @@ func (s *AuthService) issueTokens(ctx context.Context, userID string) (Tokens, e
 		return Tokens{}, err
 	}
 
-	access, err := jwtauth.SignUser(s.jwtSecret, userID, driver, now, accessTokenTTL)
+	access, err := s.signUser(userID, driver, now, accessTokenTTL)
 	if err != nil {
 		return Tokens{}, err
 	}

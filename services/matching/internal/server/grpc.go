@@ -24,11 +24,11 @@ var methodAccess = map[string]grpcserver.Access{
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo": grpcserver.Public,
 }
 
-func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, matchingService *matching.MatchingService) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, matchingService *matching.MatchingService, options ...grpc.ServerOption) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
-	gs := grpc.NewServer(grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
+	options = append(options, grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		grpcserver.Logging(lg, errorCodes),
 		grpcserver.Auth(verifier, methodAccess),
@@ -45,6 +45,7 @@ func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, matchingService *
 		MaxConnectionAge:      15 * time.Minute,
 		MaxConnectionAgeGrace: 30 * time.Second,
 	}))
+	gs := grpc.NewServer(options...)
 
 	matchingv1.RegisterMatchingServiceServer(gs, NewMatchingServer(matchingService))
 	reflection.Register(gs)

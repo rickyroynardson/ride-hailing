@@ -10,7 +10,6 @@ func TestLoadEnvOnly(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("SERVICE_NAME", "prod-svc")
 	t.Setenv("POSTGRES_URL", "postgres://prod")
-	t.Setenv("JWT_SECRET", "secret")
 
 	cfg, err := Load()
 	if err != nil {
@@ -24,7 +23,7 @@ func TestLoadEnvOnly(t *testing.T) {
 func TestLoadEnvYaml(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("service_name: yaml-svc\npostgres_url: postgres://yaml\njwt_secret: secret"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("service_name: yaml-svc\npostgres_url: postgres://yaml"), 0644); err != nil {
 		t.Fatal(err)
 	}
 

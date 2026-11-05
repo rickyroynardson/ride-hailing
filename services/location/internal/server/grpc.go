@@ -18,15 +18,16 @@ var methodAccess = map[string]grpcserver.Access{
 	"/location.v1.LocationService/GetDriverLocation": grpcserver.ServicesOnly,
 }
 
-func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, locationService *location.LocationService) *grpc.Server {
+func NewGRPCServer(lg *zap.Logger, verifier *jwtauth.Verifier, locationService *location.LocationService, options ...grpc.ServerOption) *grpc.Server {
 	metrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	prometheus.MustRegister(metrics)
 
-	gs := grpc.NewServer(grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
+	options = append(options, grpcserver.ServerTracing(), grpc.ChainUnaryInterceptor(
 		metrics.UnaryServerInterceptor(),
 		grpcserver.Logging(lg, errorCodes),
 		grpcserver.Auth(verifier, methodAccess),
 	))
+	gs := grpc.NewServer(options...)
 
 	locationv1.RegisterLocationServiceServer(gs, NewLocationServer(locationService))
 	reflection.Register(gs)

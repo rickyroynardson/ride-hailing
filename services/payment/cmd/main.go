@@ -3,21 +3,19 @@ package main
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rickyroynardson/ride-hailing/pkg/grpcserver"
 	"github.com/rickyroynardson/ride-hailing/pkg/jwtauth"
+	"github.com/rickyroynardson/ride-hailing/pkg/lifecycle"
 	"github.com/rickyroynardson/ride-hailing/pkg/logger"
 	"github.com/rickyroynardson/ride-hailing/pkg/loop"
 	"github.com/rickyroynardson/ride-hailing/pkg/postgres"
 	"github.com/rickyroynardson/ride-hailing/pkg/telemetry"
+	"github.com/rickyroynardson/ride-hailing/pkg/workloadtls"
 	ridev1 "github.com/rickyroynardson/ride-hailing/proto/gen/ride/v1"
 	"github.com/rickyroynardson/ride-hailing/services/payment/internal/config"
 	"github.com/rickyroynardson/ride-hailing/services/payment/internal/database"
@@ -26,7 +24,6 @@ import (
 	"github.com/rickyroynardson/ride-hailing/services/payment/internal/server"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -40,6 +37,22 @@ func main() {
 		log.Fatalf("failed to init logger: %v", err)
 	}
 	defer lg.Sync()
+	serverTLS, err := workloadtls.ServerFromEnv()
+	if err != nil {
+		lg.Fatal("invalid server TLS configuration", zap.Error(err))
+	}
+	clientTLS, err := workloadtls.ClientFromEnv("ride")
+	if err != nil {
+		lg.Fatal("invalid client TLS configuration", zap.Error(err))
+	}
+	verifier, err := jwtauth.VerifierFromEnv("payment")
+	if err != nil {
+		lg.Fatal("invalid auth trust configuration", zap.Error(err))
+	}
+	credentials, err := jwtauth.CredentialsFromEnv("ride")
+	if err != nil {
+		lg.Fatal("invalid service identity configuration", zap.Error(err))
+	}
 
 	ctx := context.Background()
 
@@ -47,7 +60,7 @@ func main() {
 	if err != nil {
 		lg.Fatal("failed to set up tracing", zap.Error(err))
 	}
-	defer shutdownTracing(context.Background())
+	defer lifecycle.Flush(shutdownTracing)
 
 	dbpool, err := postgres.Connect(ctx, cfg.PostgresURL)
 	if err != nil {
@@ -63,11 +76,12 @@ func main() {
 			zap.String("fix", `goose -dir services/payment/migrations postgres "<postgres_url>" up`))
 	}
 	postgres.RegisterPoolMetrics(dbpool)
+	life := lifecycle.New(dbpool.Ping)
 
 	// grpcserver.NewClient connects lazily, so payment starts even if ride isn't up; outcomes wait on the charge until it is.
 	rideConn, err := grpcserver.NewClient(cfg.RideAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(jwtauth.NewServiceCredentials(cfg.ServiceName, cfg.JWTSecret)),
+		grpc.WithTransportCredentials(clientTLS),
+		grpc.WithPerRPCCredentials(credentials),
 		grpcserver.ClientTracing(),
 	)
 	if err != nil {
@@ -78,11 +92,12 @@ func main() {
 	paymentRepo := payment.NewRepository(dbpool)
 	paymentService := payment.NewService(paymentRepo, provider.NewPersistentFake(dbpool), ridev1.NewRideServiceClient(rideConn), lg)
 
-	gs := server.NewGRPCServer(lg, jwtauth.NewVerifier(cfg.JWTSecret), paymentService)
+	gs := server.NewGRPCServer(lg, verifier, paymentService, serverTLS, life.UnaryOption(), life.StreamOption())
 
 	// Every replica runs this; SKIP LOCKED splits the charges, and the provider's idempotency key covers the rest.
-	tickCtx, stopTick := context.WithCancel(context.Background())
-	go loop.Run(tickCtx, lg, "payment tick", time.Second, 30*time.Second, paymentService.Tick)
+	life.Go(func(tickCtx context.Context) {
+		loop.Run(tickCtx, lg, "payment tick", time.Second, 30*time.Second, paymentService.Tick)
+	})
 
 	r := chi.NewRouter()
 
@@ -93,39 +108,15 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler())
 
 	sv := &http.Server{
-		Addr:    ":" + cfg.HTTPPort,
-		Handler: r,
+		Addr:              ":" + cfg.HTTPPort,
+		Handler:           life.Health(r),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
-
-	grpcLn, err := net.Listen("tcp", ":"+cfg.GRPCPort)
-	if err != nil {
-		lg.Fatal("failed to listen grpc", zap.Error(err))
-	}
-
-	go func() {
-		if err := gs.Serve(grpcLn); err != nil {
-			lg.Fatal("grpc server stopped", zap.Error(err))
+	if err := life.Run(lifecycle.Config{GRPC: gs, GRPCAddress: ":" + cfg.GRPCPort, Admin: sv, OnReady: func() { lg.Info("server ready") }, OnDrain: func() { lg.Info("server draining") }}); err != nil {
+		if err != lifecycle.ErrDrainDeadline {
+			lg.Fatal("server failed", zap.Error(err))
 		}
-	}()
-	go func() {
-		if err := sv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			lg.Fatal("failed to start server", zap.Error(err))
-		}
-	}()
-	lg.Info("server is running", zap.String("http", ":"+cfg.HTTPPort), zap.String("grpc", ":"+cfg.GRPCPort))
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
-	<-stop
-	stopTick()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	gs.GracefulStop()
-	if err := sv.Shutdown(ctx); err != nil {
-		lg.Fatal("failed to shutdown server", zap.Error(err))
+		lg.Warn("forced shutdown", zap.Error(err))
 	}
 	lg.Info("server shutdown success")
 }

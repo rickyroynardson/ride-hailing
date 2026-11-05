@@ -13,7 +13,6 @@ type Config struct {
 	GRPCPort    string `mapstructure:"grpc_port"`
 	ServiceName string `mapstructure:"service_name"`
 	PostgresURL string `mapstructure:"postgres_url"`
-	JWTSecret   string `mapstructure:"jwt_secret"`
 }
 
 func Load() (*Config, error) {
@@ -24,7 +23,6 @@ func Load() (*Config, error) {
 	v.SetDefault("grpc_port", "50051")
 	v.SetDefault("service_name", "user-service")
 	v.SetDefault("postgres_url", "")
-	v.SetDefault("jwt_secret", "")
 
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
@@ -47,9 +45,6 @@ func Load() (*Config, error) {
 
 	if cfg.PostgresURL == "" {
 		return nil, errors.New("postgres_url is required")
-	}
-	if cfg.JWTSecret == "" {
-		return nil, errors.New("jwt_secret is required")
 	}
 
 	return &cfg, nil
